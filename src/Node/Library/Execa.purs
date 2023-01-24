@@ -339,6 +339,7 @@ execa file args options = do
           killed <- ChildProcess.killed spawned
           pure $ Left $ mkError
             { error: preview _SpawnError someError
+            , stdinErr: preview _StdinError someError
             , stdoutErr
             , stderrErr
             , exitCode: preview _ExitCode someError
@@ -457,6 +458,7 @@ execaSync file args options = do
       , escapedCommand
       , stdout: stdout'
       , stderr: stderr'
+      , stdinErr: Nothing
       , stdoutErr: Nothing
       , stderrErr: Nothing
       , error: resultError
@@ -638,6 +640,7 @@ mkError
   :: { stdout :: String
      , stderr :: String
      , error :: Maybe ChildProcess.Error
+     , stdinErr :: Maybe Exception.Error
      , stdoutErr :: Maybe Exception.Error
      , stderrErr :: Maybe Exception.Error
      , signal :: Maybe (Either Int String)
@@ -650,8 +653,8 @@ mkError
      , killed :: Boolean
      }
   -> ExecaError
-mkError { stdout, stderr, error, stdoutErr, stderrErr, signal, exitCode, command, escapedCommand, parsed, timedOut, isCanceled, killed } =
-  { originalMessage: (error >>= _.message >>> toMaybe) <|> (map Exception.message $ stdoutErr <|> stderrErr)
+mkError { stdout, stderr, error, stdinErr, stdoutErr, stderrErr, signal, exitCode, command, escapedCommand, parsed, timedOut, isCanceled, killed } =
+  { originalMessage: (error >>= _.message >>> toMaybe) <|> (map Exception.message $ stdinErr <|> stdoutErr <|> stderrErr)
   , message
   , shortMessage
   , escapedCommand
@@ -683,6 +686,8 @@ mkError { stdout, stderr, error, stdoutErr, stderrErr, signal, exitCode, command
         "was killed with " <> show signal' <> " (" <> description <> ")"
     | Just exit <- exitCode =
         "failed with exit code " <> show exit
+    | Just err <- stdinErr =
+        "had error in `stdin`: " <> Exception.message err
     | Just err <- stdoutErr =
         "had error in `stdout`: " <> Exception.message err
     | Just err <- stderrErr =
