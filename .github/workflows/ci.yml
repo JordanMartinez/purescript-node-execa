@@ -44,6 +44,10 @@ jobs:
         run: |
           spago build --purs-args "--censor-lib --strict"
 
+      - name: Run tests
+        run: |
+          spago -x test.dhall test
+
       - name: Check Formatting
         run: |
-          purs-tidy check src
+          purs-tidy check src test
