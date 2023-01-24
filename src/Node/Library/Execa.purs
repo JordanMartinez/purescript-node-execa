@@ -9,15 +9,11 @@ module Node.Library.Execa
   , ExecaResult
   , ExecaSuccess
   , execa
-  , execa'
   , ExecaSyncOptions
   , ExecaSyncResult
   , execaSync
-  , execaSync'
   , execaCommand
-  , execaCommand'
   , execaCommandSync
-  , execaCommandSync'
   ) where
 
 import Prelude
@@ -255,11 +251,23 @@ type ExecaSuccess =
   , stdout :: String
   }
 
-execa :: String -> Array String -> Aff ExecaResult
-execa file args = execa' file args identity
-
-execa' :: String -> Array String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaResult
-execa' file args buildOptions = do
+-- | Replacement for `childProcess.spawn`. Since this is asynchronous,
+-- | the returned value will not provide any results until one calls `joinFiber run`:
+-- | `execa ... >>= \result -> joinFiber result.run`. 
+-- |
+-- | Override the default options using record update syntax.
+-- | If defaults are good enough, just use `identity`.
+-- | ```
+-- | result <- execa "git checkout -b my-branch" (_
+-- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
+-- |    })
+-- | joinFiber result.run
+-- |
+-- | result2 <- execa "git checkout -b my-branch" identity
+-- | joinFiber result2.run
+-- | ```
+execa :: String -> Array String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaResult
+execa file args buildOptions = do
   let options = buildOptions defaultExecaOptions
   parsed <- liftEffect $ handleArguments file args options
   let
@@ -473,23 +481,17 @@ defaultExecaSyncOptions =
   , windowsEnableCmdEcho: Nothing
   }
 
--- | Replacement for `childProcess.spawnSync`. Use this when you don't need
--- | to change any of the default options.
--- | ```
--- | execaSync "purs" [ "compile", "src/**/*.purs" ]
--- | ```
-execaSync :: String -> Array String -> Effect (Either ExecaError ExecaSyncResult)
-execaSync file args = execaSync' file args identity
-
 -- | Replacement for `childProcess.spawnSync`. Override the default options
--- | using record update syntax
+-- | using record update syntax. If defaults are good enough, just use `identity`.
 -- | ```
 -- | execaSync "jq" [ "-M", "--" ] (_ 
 -- |    { input = Just $ ImmutableBuffer.fromString UTF8 """{ "json": 0, "array": ["my json"] }"""
 -- |    })
+-- |
+-- | execaSync "jq" [ "-M", "path/to/some/file.json" ] identity
 -- | ```
-execaSync' :: String -> Array String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Either ExecaError ExecaSyncResult)
-execaSync' file args buildOptions = do
+execaSync :: String -> Array String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Either ExecaError ExecaSyncResult)
+execaSync file args buildOptions = do
   let options = buildOptions defaultExecaSyncOptions
   parsed <- handleArguments file args $ Record.delete (Proxy :: _ "input") options
   let
@@ -775,56 +777,38 @@ mkError { stdout, stderr, error, stdinErr, stdoutErr, stderrErr, signal, exitCod
     , stdout
     ]
 
--- | Replacement for `childProcess.exec`.
--- | Use this when you don't need to override the default options.
--- | Note: this will throw an error if the string does not contain
--- | a valid command.
+-- | Replacement for `childProcess.exec`. Override the default options
+-- | using record update syntax. If defaults are good enough, just use `identity`.
 -- | ```
 -- | execaCommand "git checkout -b my-branch"
--- | ```
-execaCommand :: String -> Aff ExecaResult
-execaCommand s = execaCommand' s identity
-
--- | Replacement for `childProcess.exec`. Override the default options
--- | using record update syntax. 
--- | Note: this will throw an error if the string does not contain
--- | a valid command.
--- | ```
--- | execaCommand' "git checkout -b my-branch"
 -- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
 -- |    })
+-- |
+-- | execaCommand "git checkout -b my-branch" identity
 -- | ```
-execaCommand' :: String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaResult
-execaCommand' s buildOptions = do
+execaCommand :: String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaResult
+execaCommand s buildOptions = do
   case parseCommand s of
     Just { file, args } ->
-      execa' file args buildOptions
+      execa file args buildOptions
     Nothing ->
       liftEffect $ throw $ "Command " <> show s <> " could not be parsed into `{ file :: String, args :: Array String }` value."
 
--- | Replacement for `childProcess.execSync`. 
--- | Use this when you don't need to override the default options.
--- | Note: this will throw an error if the string does not contain
--- | a valid command.
--- | ```
--- | execaCommandSync "git checkout -b my-branch"
--- | ```
-execaCommandSync :: String -> Effect (Either ExecaError ExecaSyncResult)
-execaCommandSync s = execaCommandSync' s identity
-
 -- | Replacement for `childProcess.execSync`. Override the default options
--- | using record update syntax.
+-- | using record update syntax. If defaults are good enough, just use `identity`.
 -- | Note: this will throw an error if the string does not contain
 -- | a valid command.
 -- | ```
--- | execaCommandSync' "git checkout -b my-branch"
+-- | execaCommandSync "git checkout -b my-branch" (_
 -- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
 -- |    })
+-- |
+-- | execaCommandSync "git checkout -b my-branch" identity
 -- | ```
-execaCommandSync' :: String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Either ExecaError ExecaSyncResult)
-execaCommandSync' s buildOptions = do
+execaCommandSync :: String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Either ExecaError ExecaSyncResult)
+execaCommandSync s buildOptions = do
   case parseCommand s of
     Just { file, args } ->
-      execaSync' file args buildOptions
+      execaSync file args buildOptions
     Nothing ->
       liftEffect $ throw $ "Command " <> show s <> " could not be parsed into `{ file :: String, args :: Array String }` value."
