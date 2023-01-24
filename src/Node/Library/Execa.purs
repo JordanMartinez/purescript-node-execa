@@ -309,14 +309,14 @@ execa file args options = do
 
     bufferToString = ImmutableBuffer.toString parsed.options.encoding
 
-    getSpawnResulted = do
+    getSpawnResult = do
       { main: _, stdout: _, stderr: _ }
         <$> joinFiber processDoneFiber
         <*> getStreamBuffer (stdout spawned) { maxBuffer: Just parsed.options.maxBuffer }
         <*> getStreamBuffer (stderr spawned) { maxBuffer: Just parsed.options.maxBuffer }
 
     run = suspendAff do
-      result <- getSpawnResulted
+      result <- getSpawnResult
       let
         handleOutput' stream getStreamResult = liftEffect do
           buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } getStreamResult.buffer
