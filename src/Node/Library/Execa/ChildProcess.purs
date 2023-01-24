@@ -365,6 +365,7 @@ type SpawnSyncOptions =
 type JsSpawnSyncOptions =
   { cwd :: String
   , argv0 :: String
+  , input :: ImmutableBuffer
   , stdio :: Array Foreign
   , env :: Object String
   , uid :: Int
@@ -394,15 +395,11 @@ spawnSync file args options = do
   where
   pipe = unsafeToForeign "pipe"
   ipc = unsafeToForeign "ipc"
-  -- Fix for https://github.com/nodejs/node/issues/40085
-  -- by converting the input buffer into a stream
-  -- that is then shared by the child process.
-  -- I have not verified whether this actually works.
-  stdinOption = maybe pipe (unsafeToForeign <<< bufferToReadStream) options.input
   jsOptions =
     { cwd: fromMaybe undefined options.cwd
     , argv0: fromMaybe undefined options.argv0
-    , stdio: [ stdinOption, pipe, pipe, ipc ] <> fromMaybe [] options.stdioExtra
+    , input: fromMaybe undefined options.input
+    , stdio: [ pipe, pipe, pipe, ipc ] <> fromMaybe [] options.stdioExtra
     , env: fromMaybe undefined options.env
     , uid: fromMaybe undefined options.uid
     , gid: fromMaybe undefined options.gid
