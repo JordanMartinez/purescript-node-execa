@@ -37,14 +37,24 @@ stripFinalNewlineBuf b = do
   -- Source (v18): https://nodejs.org/docs/latest-v18.x/api/buffer.html#buffer_new_buffer_blob_sources_options
   -- Source (v16): https://nodejs.org/docs/latest-v16.x/api/buffer.html#buffer_new_buffer_blob_sources_options
   -- Source (v14): https://nodejs.org/docs/latest-v14.x/api/buffer.html#buffer_new_buffer_blob_sources_options
-  lastChar <- read UInt8 (len - 1) b
-  sndLastChar <- read UInt8 (len - 2) b
-  if lastChar == charN && sndLastChar == charR then do
-    unsafeFreeze $ slice 0 (len - 2) b
-  else if lastChar == charN || lastChar == charR then do
-    unsafeFreeze $ slice 0 (len - 1) b
-  else do
-    unsafeFreeze b
+  case len of
+    0 ->
+      unsafeFreeze b
+    1 -> do
+      lastChar <- read UInt8 (len - 1) b
+      if lastChar == charN || lastChar == charR then do
+        unsafeFreeze $ slice 0 (len - 1) b
+      else do
+        unsafeFreeze b
+    _ -> do
+      lastChar <- read UInt8 (len - 1) b
+      sndLastChar <- read UInt8 (len - 2) b
+      if lastChar == charN && sndLastChar == charR then do
+        unsafeFreeze $ slice 0 (len - 2) b
+      else if lastChar == charN || lastChar == charR then do
+        unsafeFreeze $ slice 0 (len - 1) b
+      else do
+        unsafeFreeze b
   where
   charN = Int.toNumber $ toCharCode '\n'
   charR = Int.toNumber $ toCharCode '\r'
