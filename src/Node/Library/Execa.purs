@@ -1,4 +1,19 @@
-module Node.Library.Execa where
+module Node.Library.Execa
+  ( ExecaError
+  , ExecaOptions
+  , ExecaResult
+  , ExecaSuccess
+  , execa
+  , execa'
+  , ExecaSyncOptions
+  , ExecaSyncResult
+  , execaSync
+  , execaSync'
+  , execaCommand
+  , execaCommand'
+  , execaCommandSync
+  , execaCommandSync'
+  ) where
 
 import Prelude
 
@@ -17,6 +32,7 @@ import Data.String.Regex (Regex, test)
 import Data.String.Regex as Regex
 import Data.String.Regex.Flags (global, noFlags)
 import Data.String.Regex.Unsafe (unsafeRegex)
+import Data.Traversable (for)
 import Effect (Effect)
 import Effect.Aff (Aff, Error, Fiber, Milliseconds(..), effectCanceler, finally, joinFiber, makeAff, never, nonCanceler, suspendAff)
 import Effect.Class (liftEffect)
@@ -230,8 +246,12 @@ type ExecaSuccess =
   , stdout :: String
   }
 
-execa :: String -> Array String -> ExecaOptions -> Aff ExecaResult
-execa file args options = do
+execa :: String -> Array String -> Aff ExecaResult
+execa file args = execa' file args identity
+
+execa' :: String -> Array String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaResult
+execa' file args buildOptions = do
+  let options = buildOptions defaultExecaOptions
   parsed <- liftEffect $ handleArguments file args options
   let
     command = joinCommand file args
@@ -419,8 +439,35 @@ type ExecaSyncOptions =
   , windowsEnableCmdEcho :: Maybe Boolean
   }
 
-execaSync :: String -> Array String -> ExecaSyncOptions -> Effect (Either ExecaError ExecaSyncResult)
-execaSync file args options = do
+defaultExecaSyncOptions :: ExecaSyncOptions
+defaultExecaSyncOptions =
+  { cleanup: Nothing
+  , preferLocal: Nothing
+  , stripFinalNewline: Nothing
+  , extendEnv: Nothing
+  , cwd: Nothing
+  , env: Nothing
+  , argv0: Nothing
+  , input: Nothing
+  , stdioExtra: Nothing
+  , detached: Nothing
+  , uid: Nothing
+  , gid: Nothing
+  , shell: Nothing
+  , timeout: Nothing
+  , maxBuffer: Nothing
+  , encoding: Nothing
+  , windowsVerbatimArguments: Nothing
+  , windowsHide: Nothing
+  , windowsEnableCmdEcho: Nothing
+  }
+
+execaSync :: String -> Array String -> Effect (Either ExecaError ExecaSyncResult)
+execaSync file args = execaSync' file args identity
+
+execaSync' :: String -> Array String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Either ExecaError ExecaSyncResult)
+execaSync' file args buildOptions = do
+  let options = buildOptions defaultExecaSyncOptions
   parsed <- handleArguments file args $ Record.delete (Proxy :: _ "input") options
   let
     command = joinCommand file args
@@ -493,7 +540,7 @@ handleOutput options value
   | otherwise = pure value
 
 -- Handle `execaCommand()`
-parseCommand :: String -> Array String
+parseCommand :: String -> Maybe { file :: String, args :: Array String }
 parseCommand command = do
   let
     initialTokens = Regex.split spacesRegex $ String.trim command
@@ -507,7 +554,10 @@ parseCommand command = do
               acc { previousToken = Just $ tokNoSlash <> " " <> token }
           | otherwise ->
               { previousToken: Just token, tokens: acc.tokens `Array.snoc` prevTok }
-  maybe result.tokens (Array.snoc result.tokens) result.previousToken
+    tokens = maybe result.tokens (Array.snoc result.tokens) result.previousToken
+  case Array.uncons tokens of
+    Just { head, tail } -> Just { file: head, args: tail }
+    _ -> Nothing
 
 joinCommand :: String -> Array String -> String
 joinCommand file args = file <> " " <> Array.intercalate " " args
@@ -701,3 +751,19 @@ mkError { stdout, stderr, error, stdinErr, stdoutErr, stderrErr, signal, exitCod
     , stderr
     , stdout
     ]
+
+execaCommand :: String -> Aff (Maybe ExecaResult)
+execaCommand s = execaCommand' s identity
+
+execaCommand' :: String -> (ExecaOptions -> ExecaOptions) -> Aff (Maybe ExecaResult)
+execaCommand' s buildOptions = do
+  for (parseCommand s) \{ file, args } ->
+    execa' file args buildOptions
+
+execaCommandSync :: String -> Effect (Maybe (Either ExecaError ExecaSyncResult))
+execaCommandSync s = execaCommandSync' s identity
+
+execaCommandSync' :: String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Maybe (Either ExecaError ExecaSyncResult))
+execaCommandSync' s buildOptions = do
+  for (parseCommand s) \{ file, args } ->
+    execaSync' file args buildOptions
