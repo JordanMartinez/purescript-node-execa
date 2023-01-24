@@ -18,7 +18,7 @@ import Data.String.Regex as Regex
 import Data.String.Regex.Flags (global, noFlags)
 import Data.String.Regex.Unsafe (unsafeRegex)
 import Effect (Effect)
-import Effect.Aff (Aff, Error, Milliseconds(..), effectCanceler, finally, joinFiber, makeAff, never, nonCanceler, suspendAff)
+import Effect.Aff (Aff, Error, Fiber, Milliseconds(..), effectCanceler, finally, joinFiber, makeAff, never, nonCanceler, suspendAff)
 import Effect.Class (liftEffect)
 import Effect.Exception as Exception
 import Effect.Ref as Ref
@@ -36,13 +36,13 @@ import Node.Library.Execa.ChildProcess as ChildProcess
 import Node.Library.Execa.CrossSpawn (CrossSpawnConfig)
 import Node.Library.Execa.CrossSpawn as CrossSpawn
 import Node.Library.Execa.GetStream (getStreamBuffer)
-import Node.Library.HumanSignals (signals)
 import Node.Library.Execa.MergeStream as MergeStreams
 import Node.Library.Execa.NpmRunPath (defaultNpmRunPathOptions, npmRunPathEnv)
 import Node.Library.Execa.SignalExit as SignalExit
 import Node.Library.Execa.StripFinalNewline (stripFinalNewlineBuf)
+import Node.Library.HumanSignals (signals)
 import Node.Process as Process
-import Node.Stream (destroy)
+import Node.Stream (Duplex, destroy)
 import Node.Stream as Streams
 import Record as Record
 import Type.Proxy (Proxy(..))
@@ -96,11 +96,12 @@ type ExecaOptions =
   -- execa options
   { cleanup :: Maybe Boolean
   , preferLocal :: Maybe { localDir :: Maybe String, execPath :: Maybe String }
-  , stripFinalNewline :: Maybe Boolean -- (true) - strip final newline from output
-  , extendEnv :: Maybe Boolean -- (true) - Set to false if you don't want to extend the environment variables when providing the env property.
+  , stripFinalNewline :: Maybe Boolean
+  , extendEnv :: Maybe Boolean
   -- child process spawn options:
-  , cwd :: Maybe String -- (`Process.cwd()`) - Current working directory of the child process
-  , env :: Maybe (Object String) -- 
+  , cwd :: Maybe String
+  , env :: Maybe (Object String)
+  , encoding :: Maybe Encoding
   , argv0 :: Maybe String
   , stdioExtra :: Maybe (Array Foreign)
   , detached :: Maybe Boolean
@@ -108,7 +109,7 @@ type ExecaOptions =
   , gid :: Maybe Int
   , shell :: Maybe String
   , timeout :: Maybe { milliseconds :: Number, killSignal :: Either Int String }
-  , maxBuffer :: Maybe Number -- Largest amount of data in bytes allowed on stdout or stderr.
+  , maxBuffer :: Maybe Number
   , windowsVerbatimArguments :: Maybe Boolean
   , windowsHide :: Maybe Boolean
   -- cross spawn options
@@ -122,6 +123,7 @@ defaultExecaOptions =
   , stdioExtra: Nothing
   , stripFinalNewline: Nothing
   , extendEnv: Nothing
+  , encoding: Nothing
   , cwd: Nothing
   , env: Nothing
   , argv0: Nothing
@@ -145,6 +147,7 @@ defaultOptions
            { execPath :: Maybe String
            , localDir :: Maybe String
            }
+     , encoding :: Encoding
      , stripFinalNewline :: Boolean
      , windowsEnableCmdEcho :: Boolean
      , windowsHide :: Boolean
@@ -156,6 +159,7 @@ defaultOptions =
   , stripFinalNewline: true
   , extendEnv: true
   , maxBuffer: toNumber $ 1_000 * 1_000 * 100 -- 100 MB
+  , encoding: UTF8
   , windowsVerbatimArguments: false
   , windowsHide: true
   , windowsEnableCmdEcho: false
@@ -193,6 +197,7 @@ handleArguments file args initOptions = do
       , maxBuffer: fromMaybe defaultOptions.maxBuffer initOptions.maxBuffer
       , stripFinalNewline: fromMaybe defaultOptions.stripFinalNewline initOptions.stripFinalNewline
       , cwd: fromMaybe processCwd initOptions.cwd
+      , encoding: fromMaybe defaultOptions.encoding initOptions.encoding
       , env
       , argv0: initOptions.argv0
       , detached: fromMaybe false initOptions.detached
@@ -207,10 +212,25 @@ handleArguments file args initOptions = do
   pure { file: parsed.command, args: parsed.args, options, parsed }
 
 type ExecaResult =
-  { cancel :: Effect Unit
+  { all ::
+      Aff
+        { result :: Aff { inputError :: Maybe Error, string :: String }
+        , stream :: Duplex
+        }
+  , cancel :: Effect Unit
+  , childProcess :: ChildProcess
+  , run :: Aff (Fiber (Either ExecaError ExecaSuccess))
   }
 
-execa :: String -> Array String -> ExecaOptions -> Aff Unit
+type ExecaSuccess =
+  { command :: String
+  , escapedCommand :: String
+  , exitCode :: Int
+  , stderr :: String
+  , stdout :: String
+  }
+
+execa :: String -> Array String -> ExecaOptions -> Aff ExecaResult
 execa file args options = do
   parsed <- liftEffect $ handleArguments file args options
   let
@@ -287,11 +307,11 @@ execa file args options = do
       when killSucceeded do
         Ref.write true isCanceledRef
 
+    bufferToString = ImmutableBuffer.toString parsed.options.encoding
+
     getSpawnResulted = do
       { main: _, stdout: _, stderr: _ }
         <$> joinFiber processDoneFiber
-        -- PureScript implementation note:
-        -- `getSpawnedResult` runs the 
         <*> getStreamBuffer (stdout spawned) { maxBuffer: Just parsed.options.maxBuffer }
         <*> getStreamBuffer (stderr spawned) { maxBuffer: Just parsed.options.maxBuffer }
 
@@ -303,8 +323,8 @@ execa file args options = do
           when (isJust getStreamResult.inputError) do
             destroy stream
           pure buf
-      stdout' <- handleOutput' (stdout spawned) result.stdout
-      stderr' <- handleOutput' (stderr spawned) result.stderr
+      stdout' <- bufferToString <$> handleOutput' (stdout spawned) result.stdout
+      stderr' <- bufferToString <$> handleOutput' (stderr spawned) result.stderr
       case result.main, result.stdout.inputError, result.stderr.inputError of
         ExitCode 0, Nothing, Nothing -> do
           pure $ Right
@@ -334,17 +354,21 @@ execa file args options = do
             }
 
   allStream <- suspendAff $ liftEffect do
-    MergeStreams.mergeStreams \iface -> do
+    duplex <- MergeStreams.mergeStreams \iface -> do
       _ <- MergeStreams.add (stdout spawned) iface
       void $ MergeStreams.add (stderr spawned) iface
-  _ <- pure
+    pure
+      { stream: duplex
+      , result: do
+          { buffer, inputError } <- getStreamBuffer duplex { maxBuffer: Just $ parsed.options.maxBuffer * 2.0 }
+          pure { string: bufferToString buffer, inputError }
+      }
+  pure
     { childProcess: spawned
     , run
     , cancel
     , all: joinFiber allStream
     }
-
-  pure unit
 
 -- | - `cleanup` (default: `true`): Kill the spawned process when the parent process exits unless either:
 -- |    - the spawned process is `detached`
@@ -387,6 +411,7 @@ type ExecaSyncOptions =
   , shell :: Maybe String
   , timeout :: Maybe { milliseconds :: Number, killSignal :: Either Int String }
   , maxBuffer :: Maybe Number
+  , encoding :: Maybe Encoding
   , windowsVerbatimArguments :: Maybe Boolean
   , windowsHide :: Maybe Boolean
   -- cross spawn options
@@ -414,9 +439,12 @@ execaSync file args options = do
     , windowsVerbatimArguments: Just parsed.options.windowsVerbatimArguments
     , windowsHide: Just parsed.options.windowsHide
     }
-  let stripOption = fromMaybe true options.stripFinalNewline
-  stdout <- handleOutput { stripFinalNewline: stripOption } result.stdout
-  stderr <- handleOutput { stripFinalNewline: stripOption } result.stderr
+  let
+    stripOption = fromMaybe true options.stripFinalNewline
+    encoding = fromMaybe defaultOptions.encoding options.encoding
+    bufferToString = ImmutableBuffer.toString encoding
+  stdout' <- bufferToString <$> handleOutput { stripFinalNewline: stripOption } result.stdout
+  stderr' <- bufferToString <$> handleOutput { stripFinalNewline: stripOption } result.stderr
   let
     resultError = toMaybe result.error
     resultSignal = map fromKillSignal $ toMaybe result.signal
@@ -427,8 +455,8 @@ execaSync file args options = do
     pure $ Left $ mkError
       { command
       , escapedCommand
-      , stdout
-      , stderr
+      , stdout: stdout'
+      , stderr: stderr'
       , stdoutErr: Nothing
       , stderrErr: Nothing
       , error: resultError
@@ -443,8 +471,8 @@ execaSync file args options = do
     pure $ Right
       { command
       , escapedCommand
-      , stdout
-      , stderr
+      , stdout: stdout'
+      , stderr: stderr'
       , exitCode: 0
       }
 
@@ -452,8 +480,8 @@ type ExecaSyncResult =
   { command :: String
   , escapedCommand :: String
   , exitCode :: Int
-  , stdout :: ImmutableBuffer
-  , stderr :: ImmutableBuffer
+  , stdout :: String
+  , stderr :: String
   }
 
 handleOutput :: forall r. { stripFinalNewline :: Boolean | r } -> ImmutableBuffer -> Effect ImmutableBuffer
@@ -574,6 +602,7 @@ type ExecaRunOptions =
   { cleanup :: Boolean
   , stdioExtra :: Array Foreign
   , stripFinalNewline :: Boolean
+  , encoding :: Encoding
   -- child process spawn options:
   , cwd :: String
   , env :: Object String -- 
@@ -597,8 +626,8 @@ type ExecaError =
   , exitCode :: Maybe Int
   , signal :: Maybe (Either Int String)
   , signalDescription :: Maybe String
-  , stdout :: ImmutableBuffer
-  , stderr :: ImmutableBuffer
+  , stdout :: String
+  , stderr :: String
   , failed :: Boolean
   , timedOut :: Boolean
   , isCanceled :: Boolean
@@ -606,8 +635,8 @@ type ExecaError =
   }
 
 mkError
-  :: { stdout :: ImmutableBuffer
-     , stderr :: ImmutableBuffer
+  :: { stdout :: String
+     , stderr :: String
      , error :: Maybe ChildProcess.Error
      , stdoutErr :: Maybe Exception.Error
      , stderrErr :: Maybe Exception.Error
@@ -664,6 +693,6 @@ mkError { stdout, stderr, error, stdoutErr, stderrErr, signal, exitCode, command
   shortMessage = execaMessage <> (maybe "" (append "\n") $ (toMaybe <<< _.message) =<< error)
   message = Array.intercalate "\n"
     [ shortMessage
-    , ImmutableBuffer.toString UTF8 stderr
-    , ImmutableBuffer.toString UTF8 stdout
+    , stderr
+    , stdout
     ]
