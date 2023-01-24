@@ -29,14 +29,6 @@ getErrorOption
   -> a
 getErrorOption sym (CustomError e) = Record.get sym $ (unsafeCoerce :: Error -> { | rows }) e
 
-type ExtraInfo =
-  ( code :: String
-  , errNo :: String
-  , systemCall :: String
-  , path :: String
-  , spawnArgs :: Array String
-  )
-
 foreign import buildCustomErrorImpl
   :: forall rows
    . Fn2 String { | rows } (CustomError rows)
