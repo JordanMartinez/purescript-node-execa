@@ -240,7 +240,7 @@ type ExecaResult =
         }
   , cancel :: Effect Unit
   , childProcess :: ChildProcess
-  , run :: Aff (Fiber (Either ExecaError ExecaSuccess))
+  , run :: Fiber (Either ExecaError ExecaSuccess)
   }
 
 type ExecaSuccess =
@@ -352,44 +352,44 @@ execa file args buildOptions = do
         <*> getStreamBuffer (stdout spawned) { maxBuffer: Just parsed.options.maxBuffer }
         <*> getStreamBuffer (stderr spawned) { maxBuffer: Just parsed.options.maxBuffer }
 
-    run = suspendAff do
-      result <- getSpawnResult
-      let
-        handleOutput' stream getStreamResult = liftEffect do
-          buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } getStreamResult.buffer
-          when (isJust getStreamResult.inputError) do
-            destroy stream
-          pure buf
-      stdout' <- bufferToString <$> handleOutput' (stdout spawned) result.stdout
-      stderr' <- bufferToString <$> handleOutput' (stderr spawned) result.stderr
-      case result.main, result.stdout.inputError, result.stderr.inputError of
-        ExitCode 0, Nothing, Nothing -> do
-          pure $ Right
-            { command
-            , escapedCommand
-            , exitCode: 0
-            , stdout: stdout'
-            , stderr: stderr'
-            }
-        someError, stdoutErr, stderrErr -> liftEffect do
-          isCanceled <- Ref.read isCanceledRef
-          killed <- ChildProcess.killed spawned
-          pure $ Left $ mkError
-            { error: preview _SpawnError someError
-            , stdinErr: preview _StdinError someError
-            , stdoutErr
-            , stderrErr
-            , exitCode: preview _ExitCode someError
-            , signal: preview _TimedOut someError
-            , stdout: stdout'
-            , stderr: stderr'
-            , command
-            , escapedCommand
-            , parsed
-            , timedOut: is _TimedOut someError
-            , isCanceled
-            , killed
-            }
+  run <- suspendAff do
+    result <- getSpawnResult
+    let
+      handleOutput' stream getStreamResult = liftEffect do
+        buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } getStreamResult.buffer
+        when (isJust getStreamResult.inputError) do
+          destroy stream
+        pure buf
+    stdout' <- bufferToString <$> handleOutput' (stdout spawned) result.stdout
+    stderr' <- bufferToString <$> handleOutput' (stderr spawned) result.stderr
+    case result.main, result.stdout.inputError, result.stderr.inputError of
+      ExitCode 0, Nothing, Nothing -> do
+        pure $ Right
+          { command
+          , escapedCommand
+          , exitCode: 0
+          , stdout: stdout'
+          , stderr: stderr'
+          }
+      someError, stdoutErr, stderrErr -> liftEffect do
+        isCanceled <- Ref.read isCanceledRef
+        killed <- ChildProcess.killed spawned
+        pure $ Left $ mkError
+          { error: preview _SpawnError someError
+          , stdinErr: preview _StdinError someError
+          , stdoutErr
+          , stderrErr
+          , exitCode: preview _ExitCode someError
+          , signal: preview _TimedOut someError
+          , stdout: stdout'
+          , stderr: stderr'
+          , command
+          , escapedCommand
+          , parsed
+          , timedOut: is _TimedOut someError
+          , isCanceled
+          , killed
+          }
 
   allStream <- suspendAff $ liftEffect do
     duplex <- MergeStreams.mergeStreams \iface -> do
