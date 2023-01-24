@@ -37,10 +37,10 @@ import Data.String.Regex (Regex, test)
 import Data.String.Regex as Regex
 import Data.String.Regex.Flags (global, noFlags)
 import Data.String.Regex.Unsafe (unsafeRegex)
-import Data.Traversable (for)
 import Effect (Effect)
 import Effect.Aff (Aff, Error, Fiber, Milliseconds(..), effectCanceler, finally, joinFiber, makeAff, never, nonCanceler, suspendAff)
 import Effect.Class (liftEffect)
+import Effect.Exception (throw)
 import Effect.Exception as Exception
 import Effect.Ref as Ref
 import Effect.Timer (clearTimeout, setTimeout)
@@ -777,44 +777,54 @@ mkError { stdout, stderr, error, stdinErr, stdoutErr, stderrErr, signal, exitCod
 
 -- | Replacement for `childProcess.exec`.
 -- | Use this when you don't need to override the default options.
--- | The `Maybe` is only necessary because the String might be empty.
+-- | Note: this will throw an error if the string does not contain
+-- | a valid command.
 -- | ```
 -- | execaCommand "git checkout -b my-branch"
 -- | ```
-execaCommand :: String -> Aff (Maybe ExecaResult)
+execaCommand :: String -> Aff ExecaResult
 execaCommand s = execaCommand' s identity
 
 -- | Replacement for `childProcess.exec`. Override the default options
--- | using record update syntax. The `Maybe` is only necessary
--- | because the String might be empty.
+-- | using record update syntax. 
+-- | Note: this will throw an error if the string does not contain
+-- | a valid command.
 -- | ```
 -- | execaCommand' "git checkout -b my-branch"
 -- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
 -- |    })
 -- | ```
-execaCommand' :: String -> (ExecaOptions -> ExecaOptions) -> Aff (Maybe ExecaResult)
+execaCommand' :: String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaResult
 execaCommand' s buildOptions = do
-  for (parseCommand s) \{ file, args } ->
-    execa' file args buildOptions
+  case parseCommand s of
+    Just { file, args } ->
+      execa' file args buildOptions
+    Nothing ->
+      liftEffect $ throw $ "Command " <> show s <> " could not be parsed into `{ file :: String, args :: Array String }` value."
 
 -- | Replacement for `childProcess.execSync`. 
 -- | Use this when you don't need to override the default options.
--- | The `Maybe` is only necessary because the String might be empty.
+-- | Note: this will throw an error if the string does not contain
+-- | a valid command.
 -- | ```
 -- | execaCommandSync "git checkout -b my-branch"
 -- | ```
-execaCommandSync :: String -> Effect (Maybe (Either ExecaError ExecaSyncResult))
+execaCommandSync :: String -> Effect (Either ExecaError ExecaSyncResult)
 execaCommandSync s = execaCommandSync' s identity
 
 -- | Replacement for `childProcess.execSync`. Override the default options
--- | using record update syntax. The `Maybe` is only necessary
--- | because the String might be empty.
+-- | using record update syntax.
+-- | Note: this will throw an error if the string does not contain
+-- | a valid command.
 -- | ```
 -- | execaCommandSync' "git checkout -b my-branch"
 -- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
 -- |    })
 -- | ```
-execaCommandSync' :: String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Maybe (Either ExecaError ExecaSyncResult))
+execaCommandSync' :: String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Either ExecaError ExecaSyncResult)
 execaCommandSync' s buildOptions = do
-  for (parseCommand s) \{ file, args } ->
-    execaSync' file args buildOptions
+  case parseCommand s of
+    Just { file, args } ->
+      execaSync' file args buildOptions
+    Nothing ->
+      liftEffect $ throw $ "Command " <> show s <> " could not be parsed into `{ file :: String, args :: Array String }` value."
