@@ -24,14 +24,14 @@ import Effect.Exception as Exception
 import Effect.Ref as Ref
 import Effect.Timer (clearTimeout, setTimeout)
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn3, runEffectFn1, runEffectFn2)
-import Foreign (Foreign, unsafeToForeign)
+import Foreign (Foreign)
 import Foreign.Object (Object)
 import Foreign.Object as Object
 import Node.Buffer (unsafeThaw)
 import Node.Buffer.Immutable (ImmutableBuffer)
 import Node.Buffer.Immutable as ImmutableBuffer
 import Node.Encoding (Encoding(..))
-import Node.Library.Execa.ChildProcess (ChildProcess, KillSignal, fromKillSignal, kill, kill', onError, onExit, spawnSync, stderr, stdin, stdout)
+import Node.Library.Execa.ChildProcess (ChildProcess, KillSignal, fromKillSignal, intKillSignal, kill, kill', onError, onExit, spawnSync, stderr, stdin, stdout, stringKillSignal)
 import Node.Library.Execa.ChildProcess as ChildProcess
 import Node.Library.Execa.CrossSpawn (CrossSpawnConfig)
 import Node.Library.Execa.CrossSpawn as CrossSpawn
@@ -558,7 +558,7 @@ spacesRegex = unsafeRegex " +" global
 
 spawnedKill
   :: EffectFn3
-       (EffectFn1 Foreign Boolean)
+       (EffectFn1 KillSignal Boolean)
        (Nullable KillSignal)
        { forceKillAfterTimeout :: Maybe Milliseconds }
        Boolean
@@ -567,7 +567,7 @@ spawnedKill = mkEffectFn3 \killFn numOrStringSignal options -> do
     signal = case toMaybe numOrStringSignal of
       Nothing -> Right "SIGTERM"
       Just numOrStr -> fromKillSignal numOrStr
-  killSignalSucceeded <- runEffectFn1 killFn $ either unsafeToForeign unsafeToForeign signal
+  killSignalSucceeded <- runEffectFn1 killFn $ either intKillSignal stringKillSignal signal
   let
     mbTimeout = do
       guard $ isSigTerm signal
@@ -575,7 +575,7 @@ spawnedKill = mkEffectFn3 \killFn numOrStringSignal options -> do
       options.forceKillAfterTimeout
   for_ mbTimeout \(Milliseconds timeout) -> do
     t <- runEffectFn2 setTimeoutImpl (floor timeout) do
-      void $ runEffectFn1 killFn $ unsafeToForeign "SIGKILL"
+      void $ runEffectFn1 killFn $ stringKillSignal "SIGKILL"
     t.unref
   pure killSignalSucceeded
   where
@@ -588,7 +588,7 @@ foreign import monkeyPatchKill
   :: EffectFn2
        ChildProcess
        ( EffectFn3
-           (EffectFn1 Foreign Boolean)
+           (EffectFn1 KillSignal Boolean)
            (Nullable KillSignal)
            { forceKillAfterTimeout :: Maybe Milliseconds }
            Boolean
