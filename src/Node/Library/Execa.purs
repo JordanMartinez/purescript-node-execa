@@ -1,3 +1,8 @@
+-- | Provides a higher-level replacement to Node.js `child_process` module.
+-- | Uses sane defaults with clearer error messages.
+-- | - `spawn`/`spawnSync` -> `execa`/`execaSync`
+-- | - `exec`/`execSync` -> `execaCommand`/`execaCommandSync`
+-- | - `fork` - has no equivalent
 module Node.Library.Execa
   ( ExecaError
   , ExecaOptions
@@ -227,6 +232,10 @@ handleArguments file args initOptions = do
       }
   pure { file: parsed.command, args: parsed.args, options, parsed }
 
+-- | `childProcess` - access to the child process itself
+-- | `run` - gets the result of the process via `joinFiber run`
+-- | `cancel` - kill the child process, but indicate it was cancelled rather than killed in the error message
+-- | `all` - interleave `stdout`/`stderr` into one stream
 type ExecaResult =
   { all ::
       Aff
@@ -402,6 +411,7 @@ execa' file args buildOptions = do
 -- | - `stripFinalNewline` - (default: `true`). If enabled, trims the newline character of `stdout`/`stderr` (e.g. `/(?:/r/n)|\r|\n$/`
 -- | - `extendEnv` (default: `true`) - Extends the child process' `env` with `Process.env`
 -- | - `argv0` - see Node docs
+-- | - `input` - When defined, the input is piped into the child's `stdin` and then `stdin` is `end`ed.
 -- | - `stdioExtra` - Append any other `stdio` values to the array.
 -- |    The `stdio` array used is always `["pipe", "pipe", "pipe", "ipc"] <> fromMaybe [] options.stdioExtra`
 -- | - `detached` - see Node docs
@@ -411,6 +421,7 @@ execa' file args buildOptions = do
 -- | - `timeout` - the amount of time to wait before killing the child process with the given kill signal
 -- | - `maxBuffer` - the amount of buffer space available to `stdout`/`stderr`.
 -- |    If more data is written to their buffers, child process will error with a max buffer size exceeded error.
+-- | - `encoding` (default: `Just UTF8`) - the encoding to use to decode `stdout`/`stderr` to a String
 -- | - `windowsVerbatimArguments` - see Node docs
 -- | - `windowsHide` - see Node docs
 -- | - `windowsEnableCmdEcho` (default: `true`) - Enables the `\q` flag when using the `cmd` shell. See https://github.com/nodejs/node/issues/27120
@@ -462,9 +473,21 @@ defaultExecaSyncOptions =
   , windowsEnableCmdEcho: Nothing
   }
 
+-- | Replacement for `childProcess.spawnSync`. Use this when you don't need
+-- | to change any of the default options.
+-- | ```
+-- | execaSync "purs" [ "compile", "src/**/*.purs" ]
+-- | ```
 execaSync :: String -> Array String -> Effect (Either ExecaError ExecaSyncResult)
 execaSync file args = execaSync' file args identity
 
+-- | Replacement for `childProcess.spawnSync`. Override the default options
+-- | using record update syntax
+-- | ```
+-- | execaSync "jq" [ "-M", "--" ] (_ 
+-- |    { input = Just $ ImmutableBuffer.fromString UTF8 """{ "json": 0, "array": ["my json"] }"""
+-- |    })
+-- | ```
 execaSync' :: String -> Array String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Either ExecaError ExecaSyncResult)
 execaSync' file args buildOptions = do
   let options = buildOptions defaultExecaSyncOptions
@@ -752,17 +775,45 @@ mkError { stdout, stderr, error, stdinErr, stdoutErr, stderrErr, signal, exitCod
     , stdout
     ]
 
+-- | Replacement for `childProcess.exec`.
+-- | Use this when you don't need to override the default options.
+-- | The `Maybe` is only necessary because the String might be empty.
+-- | ```
+-- | execaCommand "git checkout -b my-branch"
+-- | ```
 execaCommand :: String -> Aff (Maybe ExecaResult)
 execaCommand s = execaCommand' s identity
 
+-- | Replacement for `childProcess.exec`. Override the default options
+-- | using record update syntax. The `Maybe` is only necessary
+-- | because the String might be empty.
+-- | ```
+-- | execaCommand' "git checkout -b my-branch"
+-- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
+-- |    })
+-- | ```
 execaCommand' :: String -> (ExecaOptions -> ExecaOptions) -> Aff (Maybe ExecaResult)
 execaCommand' s buildOptions = do
   for (parseCommand s) \{ file, args } ->
     execa' file args buildOptions
 
+-- | Replacement for `childProcess.execSync`. 
+-- | Use this when you don't need to override the default options.
+-- | The `Maybe` is only necessary because the String might be empty.
+-- | ```
+-- | execaCommandSync "git checkout -b my-branch"
+-- | ```
 execaCommandSync :: String -> Effect (Maybe (Either ExecaError ExecaSyncResult))
 execaCommandSync s = execaCommandSync' s identity
 
+-- | Replacement for `childProcess.execSync`. Override the default options
+-- | using record update syntax. The `Maybe` is only necessary
+-- | because the String might be empty.
+-- | ```
+-- | execaCommandSync' "git checkout -b my-branch"
+-- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
+-- |    })
+-- | ```
 execaCommandSync' :: String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Maybe (Either ExecaError ExecaSyncResult))
 execaCommandSync' s buildOptions = do
   for (parseCommand s) \{ file, args } ->

@@ -109,6 +109,10 @@ kill = kill' (Right "SIGTERM") { forceKillAfterTimeout: Nothing }
 -- | and the signal. They can vary from system to system.
 -- | The child process might emit an `"error"` event if the signal
 -- | could not be delivered.
+-- |
+-- | If `forceKillAfterTimeout` is defined and
+-- | the kill signal was successful, `childProcess.kill "SIGKILL"`
+-- | will be called once the timeout is reached.
 kill' :: Either Int String -> { forceKillAfterTimeout :: Maybe Milliseconds } -> ChildProcess -> Effect Boolean
 kill' sig options cp = runEffectFn3 killImpl cp (either intKillSignal stringKillSignal sig) options
 
