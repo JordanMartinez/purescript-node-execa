@@ -394,12 +394,12 @@ spawnSync file args options = do
   runEffectFn3 spawnSyncImpl file args jsOptions
   where
   pipe = unsafeToForeign "pipe"
-  ipc = unsafeToForeign "ipc"
+  ignore = unsafeToForeign "ignore"
   jsOptions =
     { cwd: fromMaybe undefined options.cwd
     , argv0: fromMaybe undefined options.argv0
     , input: fromMaybe undefined options.input
-    , stdio: [ pipe, pipe, pipe, ipc ] <> fromMaybe [] options.stdioExtra
+    , stdio: [ pipe, pipe, pipe, ignore ] <> fromMaybe [] options.stdioExtra
     , env: fromMaybe undefined options.env
     , uid: fromMaybe undefined options.uid
     , gid: fromMaybe undefined options.gid
