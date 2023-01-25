@@ -2,7 +2,6 @@
 , dependencies =
   [ "aff"
   , "arrays"
-  , "console"
   , "control"
   , "datetime"
   , "effect"
@@ -16,10 +15,8 @@
   , "js-timers"
   , "maybe"
   , "node-buffer"
-  , "node-child-process"
   , "node-event-emitter"
   , "node-fs"
-  , "node-fs-aff"
   , "node-human-signals"
   , "node-path"
   , "node-process"
