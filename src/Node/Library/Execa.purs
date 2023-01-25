@@ -47,6 +47,7 @@ import Foreign.Object as Object
 import Node.Buffer (unsafeThaw)
 import Node.Buffer.Immutable (ImmutableBuffer)
 import Node.Buffer.Immutable as ImmutableBuffer
+import Node.Buffer.Internal as Buffer
 import Node.Encoding (Encoding(..))
 import Node.Library.Execa.ChildProcess (ChildProcess, KillSignal, fromKillSignal, intKillSignal, kill, kill', onError, onExit, spawnSync, stderr, stdin, stdout, stringKillSignal)
 import Node.Library.Execa.ChildProcess as ChildProcess
@@ -60,6 +61,7 @@ import Node.Library.Execa.StripFinalNewline (stripFinalNewlineBuf)
 import Node.Library.HumanSignals (signals)
 import Node.Process as Process
 import Node.Stream (Duplex, destroy)
+import Node.Stream as Stream
 import Node.Stream as Streams
 import Record as Record
 import Type.Proxy (Proxy(..))
@@ -241,6 +243,9 @@ type ExecaResult =
   , cancel :: Effect Unit
   , childProcess :: ChildProcess
   , run :: Fiber (Either ExecaError ExecaSuccess)
+  , writeStdin :: Encoding -> String -> Aff Unit
+  , writeCloseStdin :: Encoding -> String -> Aff Unit
+  , closeStdin :: Aff Unit
   }
 
 type ExecaSuccess =
@@ -406,6 +411,18 @@ execa file args buildOptions = do
     , run
     , cancel
     , all: joinFiber allStream
+    , writeStdin: \encoding str -> do
+        liftEffect do
+          buf <- Buffer.fromString str encoding
+          void $ Stream.write (stdin spawned) buf mempty
+    , writeCloseStdin: \encoding str -> do
+        liftEffect do
+          buf <- Buffer.fromString str encoding
+          void $ Stream.write (stdin spawned) buf mempty
+          void $ Stream.end (stdin spawned) mempty
+    , closeStdin: do
+        liftEffect do
+          void $ Stream.end (stdin spawned) mempty
     }
 
 -- | - `cleanup` (default: `true`): Kill the spawned process when the parent process exits unless either:
