@@ -13,20 +13,22 @@ import Node.Library.Execa.ChildProcess (stdin)
 import Node.Library.Execa.Utils (utf8)
 import Node.Stream as Stream
 import Test.Spec (SpecT, describe, it)
-import Test.Spec.Assertions (expectError, fail, shouldEqual)
+import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Spec.Assertions.String (shouldContain)
 
 spec :: SpecT Aff Unit Aff Unit
 spec = do
   describe "execa" do
     it "`echo test` should fail due to a Node.js bug" do
-      expectError do
-        spawned <- execa "echo" [] identity
-        liftEffect do
-          buf <- Buffer.fromString "test" UTF8
-          void $ Stream.write (stdin spawned.childProcess) buf mempty
-          void $ Stream.end (stdin spawned.childProcess) mempty
-        void $ joinFiber spawned.run
+      spawned <- execa "echo" [] identity
+      liftEffect do
+        buf <- Buffer.fromString "test" UTF8
+        void $ Stream.write (stdin spawned.childProcess) buf mempty
+        void $ Stream.end (stdin spawned.childProcess) mempty
+      result <- joinFiber spawned.run
+      case result of
+        Right _ -> fail "Expected EPIPE error"
+        Left e -> e.message `shouldContain` "EPIPE"
   describe "execaSync" do
     pure unit
   describe "execaCommand" do

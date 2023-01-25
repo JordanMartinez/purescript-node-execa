@@ -1,15 +1,15 @@
 import * as process from "node:process";
 
 export function unsafeProcessHasProp(prop) {
-  return process[prop] !== null && process[prop] !== undefined;
+  return global.process[prop] !== null && global.process[prop] !== undefined;
 }
 
 export function unsafeReadProcessProp(prop) {
-  return process[prop];
+  return global.process[prop];
 }
 
 export function unsafeWriteProcessProp(prop, value) {
-  process[prop] = value;
+  global.process[prop] = value;
 }
 
 export function processCallFn(originalProcessReallyExit, exitCode) {
