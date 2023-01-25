@@ -7,7 +7,7 @@ import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff, joinFiber)
 import Effect.Class (liftEffect)
 import Node.Encoding (Encoding(..))
-import Node.Library.Execa (execa, execaCommandSync, execaSync)
+import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.Execa.Utils (utf8)
 import Test.Spec (SpecT, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
@@ -50,7 +50,20 @@ spec = do
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message
   describe "execaCommand" do
-    pure unit
+    describe "`cat` tests" do
+      it "input is file" do
+        spawned <- execaCommand "cat test.dhall" identity
+        result <- joinFiber spawned.run
+        case result of
+          Right r -> r.stdout `shouldContain` "let config ="
+          Left e -> fail e.message
+      it "input is buffer" do
+        spawned <- execaCommand "cat -" identity
+        spawned.writeCloseStdin UTF8 "test"
+        result <- joinFiber spawned.run
+        case result of
+          Right r -> r.stdout `shouldEqual` "test"
+          Left e -> fail e.message
   describe "execaCommandSync" do
     describe "`cat` tests" do
       it "input is file" do
