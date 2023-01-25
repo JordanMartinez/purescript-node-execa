@@ -4,17 +4,29 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Effect.Aff (Aff, joinFiber)
 import Effect.Class (liftEffect)
-import Node.Library.Execa (execaCommandSync)
+import Node.Buffer as Buffer
+import Node.Encoding (Encoding(..))
+import Node.Library.Execa (execa, execaCommandSync)
+import Node.Library.Execa.ChildProcess (stdin)
 import Node.Library.Execa.Utils (utf8)
-import Test.Spec (Spec, describe, it)
-import Test.Spec.Assertions (fail, shouldEqual)
+import Node.Stream as Stream
+import Test.Spec (SpecT, describe, it)
+import Test.Spec.Assertions (expectError, fail, shouldEqual)
 import Test.Spec.Assertions.String (shouldContain)
 
-spec :: Spec Unit
+spec :: SpecT Aff Unit Aff Unit
 spec = do
   describe "execa" do
-    pure unit
+    it "`echo test` should fail due to a Node.js bug" do
+      expectError do
+        spawned <- execa "echo" [] identity
+        liftEffect do
+          buf <- Buffer.fromString "test" UTF8
+          void $ Stream.write (stdin spawned.childProcess) buf mempty
+          void $ Stream.end (stdin spawned.childProcess) mempty
+        void $ joinFiber spawned.run
   describe "execaSync" do
     pure unit
   describe "execaCommand" do
