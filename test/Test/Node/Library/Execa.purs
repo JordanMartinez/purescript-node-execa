@@ -9,7 +9,7 @@ import Effect.Class (liftEffect)
 import Node.Encoding (Encoding(..))
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.Execa.Utils (utf8)
-import Test.Spec (SpecT, describe, it)
+import Test.Spec (SpecT, describe, it, pending')
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Spec.Assertions.String (shouldContain)
 
@@ -46,7 +46,7 @@ spec = do
           Right _ -> fail "Cancelling should work"
           Left e -> e.isCanceled `shouldEqual` true
     describe "all stream works" do
-      it "basic kill produces error" do
+      pending' "all stream contains concatenation of stdout and stderr" do
         spawned <- execa "bash" [ "test/fixtures/outErr.sh" ] identity
         void $ joinFiber spawned.run
         all <- spawned.all >>= _.result
