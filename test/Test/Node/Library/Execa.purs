@@ -37,6 +37,20 @@ spec = do
         case result of
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message
+    describe "kill works" do
+      it "basic kill produces error" do
+        spawned <- execa "bash" [ "test/fixtures/sleep.sh", "1" ] identity
+        liftEffect spawned.cancel
+        result <- joinFiber spawned.run
+        case result of
+          Right _ -> fail "Cancelling should work"
+          Left e -> e.isCanceled `shouldEqual` true
+    describe "all stream works" do
+      it "basic kill produces error" do
+        spawned <- execa "bash" [ "test/fixtures/outErr.sh" ] identity
+        void $ joinFiber spawned.run
+        all <- spawned.all >>= _.result
+        all.string `shouldEqual` "stdout\nstderr\n"
   describe "execaSync" do
     describe "`cat` tests" do
       it "input is file" do
