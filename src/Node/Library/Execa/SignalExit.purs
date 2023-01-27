@@ -158,7 +158,7 @@ onExit' cb options = do
     , originalProcessReallyExit
     } <- getGlobalRecOnProcessObject
     let exitCode = fromMaybe 0 $ toMaybe code
-    _ <- Process.exit exitCode
+    runEffectFn2 unsafeWriteProcessProp "exit" exitCode
     void $ withEmit $ emit _exit emitter (notNull exitCode) null
     void $ withEmit $ emit _afterexit emitter (notNull exitCode) null
     runEffectFn2 processCallFn originalProcessReallyExit (notNull exitCode)
@@ -169,7 +169,7 @@ onExit' cb options = do
       exitCode <- case toMaybe arg of
         Nothing -> processExitCode
         Just exitCode' -> do
-          _ <- Process.exit exitCode'
+          runEffectFn2 unsafeWriteProcessProp "exit" exitCode'
           pure $ notNull exitCode'
 
       ret <- runEffectFn1 runOriginalProcessEmit originalProcessEmit
