@@ -1,5 +1,3 @@
-import * as process from "node:process";
-
 export function unsafeProcessHasProp(prop) {
   return global.process[prop] !== null && global.process[prop] !== undefined;
 }
@@ -13,23 +11,23 @@ export function unsafeWriteProcessProp(prop, value) {
 }
 
 export function processCallFn(originalProcessReallyExit, exitCode) {
-  return originalProcessReallyExit.call(process, exitCode);
+  return originalProcessReallyExit.call(global.process, exitCode);
 }
 
 export function processKill(pid, sig) {
-  process.kill(pid, sig);
+  global.process.kill(pid, sig);
 }
 
 export function processListenersLength(sig) {
-  return process.listeners(sig).length;
+  return global.process.listeners(sig).length;
 }
 
 export function processOn(sig, listener) {
-  return process.on(sig, listener);
+  return global.process.on(sig, listener);
 }
 
 export function processOff(sig, listener) {
-  return process.off(sig, listener);
+  return global.process.off(sig, listener);
 }
 
 export function customProcessEmit(cb) {
@@ -41,5 +39,5 @@ export function customProcessEmit(cb) {
 }
 
 export function processExitCode() {
-  return process.exitCode;
+  return global.process.exitCode;
 }
