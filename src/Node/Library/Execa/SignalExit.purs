@@ -202,7 +202,7 @@ getGlobalRecOnProcessObject :: Effect SignalEventRecord
 getGlobalRecOnProcessObject =
   ifM
     (runEffectFn1 unsafeProcessHasProp signalExitProp)
-    (runEffectFn1 unsafeReadProcessProp signalExitProp >>= Ref.read)
+    (runEffectFn1 unsafeReadProcessProp signalExitProp)
     attachRefsToProcessObject
   where
   attachRefsToProcessObject = do
@@ -231,8 +231,7 @@ getGlobalRecOnProcessObject =
         , loadedRef
         , signalListenersRef
         }
-    objRef <- Ref.new obj
-    runEffectFn2 unsafeWriteProcessProp signalExitProp objRef
+    runEffectFn2 unsafeWriteProcessProp signalExitProp obj
     pure obj
 
 -- This is not the set of all possible signals.
