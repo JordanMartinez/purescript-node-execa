@@ -327,8 +327,6 @@ execa file args buildOptions = do
     , shell: options.shell
     , windowsVerbatimArguments: options.windowsVerbatimArguments
     , windowsHide: options.windowsHide
-    , timeout: parsed.options.timeout
-    , killSignal: parsed.options.killSignal
     }
   spawnedFiber <- suspendAff $ makeAff \cb -> do
     onExit spawned \e s -> do
@@ -349,6 +347,9 @@ execa file args buildOptions = do
         makeAff \cb -> do
           tid <- setTimeout ((unsafeCoerce :: Number -> Int) milliseconds) do
             void $ kill'' (toKillSignal killSignal) Nothing spawned
+            -- Note: should `stdin` be destroyed here, too?
+            void $ destroy (stdout spawned)
+            void $ destroy (stderr spawned)
             cb $ Right $ TimedOut killSignal
           pure $ effectCanceler do
             clearTimeout tid
@@ -1131,10 +1132,16 @@ type SpawnOptions =
   , shell :: Maybe String
   , windowsVerbatimArguments :: Maybe Boolean
   , windowsHide :: Maybe Boolean
-  , timeout :: Maybe Number
-  , killSignal :: Maybe (Either Int String)
   }
 
+-- Note: due to overwriting the `kill` function, so that
+-- it takes another argument, passing `timeout` and `killSignal`
+-- to the child process is problematic as it will call `kill`
+-- without that additional argument and fail. 
+-- I found that evern changing the type to `Nullable`
+-- and keeping these args did not fix the issue.
+-- Since we already implement a timeout in `execa`,
+-- the args seems unnecessary for at least `spawn`.
 type JsSpawnOptions =
   { cwd :: String
   , env :: Object String
@@ -1147,8 +1154,6 @@ type JsSpawnOptions =
   , shell :: String
   , windowsVerbatimArguments :: Boolean
   , windowsHide :: Boolean
-  , timeout :: Number
-  , killSignal :: KillSignal
   }
 
 spawn
@@ -1167,8 +1172,6 @@ spawn cmd args options = do
     , serialization: maybe undefined toJsSerialization options.serialization
     , stdio: [ pipe, pipe, pipe, ipc ] <> fromMaybe [] options.stdioExtra
     , shell: fromMaybe undefined options.shell
-    , timeout: fromMaybe undefined options.timeout
-    , killSignal: fromMaybe undefined $ map (either intKillSignal stringKillSignal) options.killSignal
     , windowsHide: fromMaybe undefined options.windowsHide
     , windowsVerbatimArguments: fromMaybe undefined options.windowsVerbatimArguments
     }

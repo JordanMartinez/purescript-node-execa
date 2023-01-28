@@ -62,6 +62,16 @@ spec = do
             Just (Left i) -> i `shouldEqual` signals.byName."SIGTERM".number
             Just (Right s) -> s `shouldEqual` signals.byName."SIGTERM".name
             _ -> fail "Did not get a kill signal"
+    describe "timeout produces error" do
+      it "basic timeout produces error" do
+        spawned <- execa "bash" [ "test/fixtures/sleep.sh", "10" ]
+          (_ { timeout = Just { milliseconds: 400.0, killSignal: Right "SIGTERM" } })
+        result <- spawned.result
+        case result of
+          Right _ -> fail "Timeout should work"
+          Left e -> do
+            e.signal `shouldEqual` (Just $ Right "SIGTERM")
+            e.timedOut `shouldEqual` true
   describe "execaSync" do
     describe "`cat` tests" do
       it "input is file" do
