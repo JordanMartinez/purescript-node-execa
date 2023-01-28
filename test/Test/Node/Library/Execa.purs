@@ -6,9 +6,12 @@ import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff, joinFiber)
 import Effect.Class (liftEffect)
+import Effect.Class.Console (log)
 import Node.Encoding (Encoding(..))
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
+import Node.Library.Execa.ChildProcess (kill')
 import Node.Library.Execa.Utils (utf8)
+import Node.Library.HumanSignals (signals)
 import Test.Spec (SpecT, describe, it, pending')
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Spec.Assertions.String (shouldContain)
@@ -38,13 +41,30 @@ spec = do
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message
     describe "kill works" do
-      it "basic kill produces error" do
+      it "basic cancel produces error" do
         spawned <- execa "bash" [ "test/fixtures/sleep.sh", "1" ] identity
         liftEffect spawned.cancel
         result <- joinFiber spawned.run
         case result of
           Right _ -> fail "Cancelling should work"
           Left e -> e.isCanceled `shouldEqual` true
+      it "basic kill (string) produces error" do
+        spawned <- execa "bash" [ "test/fixtures/sleep.sh", "1" ] identity
+        _ <- liftEffect $ kill' (Right "SIGTERM") { forceKillAfterTimeout: Nothing } spawned.childProcess
+        result <- joinFiber spawned.run
+        case result of
+          Right _ -> fail "Cancelling should work"
+          Left e -> e.signal `shouldEqual` (Just $ Right "SIGTERM")
+      it "basic kill (int) produces error" do
+        spawned <- execa "bash" [ "test/fixtures/sleep.sh", "1" ] identity
+        _ <- liftEffect $ kill' (Left signals.byName."SIGTERM".number) { forceKillAfterTimeout: Nothing } spawned.childProcess
+        result <- joinFiber spawned.run
+        case result of
+          Right _ -> fail "Cancelling should work"
+          Left e -> case e.signal of
+            Just (Left i) -> i `shouldEqual` signals.byName."SIGTERM".number
+            Just (Right s) -> s `shouldEqual` signals.byName."SIGTERM".name
+            _ -> fail "Did not get a kill signal"
     describe "all stream works" do
       pending' "all stream contains concatenation of stdout and stderr" do
         spawned <- execa "bash" [ "test/fixtures/outErr.sh" ] identity

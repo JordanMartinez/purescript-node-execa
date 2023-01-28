@@ -218,7 +218,7 @@ foreign import onErrorImpl :: EffectFn2 (ChildProcess) (EffectFn1 Error Unit) (U
 -- | terminated by the given signal.
 data Exit
   = ExitCode Int
-  | SignalCode String
+  | SignalCode (Either Int String)
 
 derive instance Eq Exit
 derive instance Generic Exit _
@@ -230,10 +230,10 @@ onExit :: ChildProcess -> (Exit -> Effect Unit) -> Effect Unit
 onExit cp cb = runEffectFn2 onExitImpl cp $ mkEffectFn2 \e s ->
   cb case toMaybe e, toMaybe s of
     Just i, _ -> ExitCode i
-    _, Just sig -> SignalCode sig
+    _, Just sig -> SignalCode $ fromKillSignal sig
     _, _ -> unsafeCrashWith "Impossible: either exit code or signal code must be non-null"
 
-foreign import onExitImpl :: EffectFn2 (ChildProcess) (EffectFn2 (Nullable Int) (Nullable String) Unit) (Unit)
+foreign import onExitImpl :: EffectFn2 (ChildProcess) (EffectFn2 (Nullable Int) (Nullable KillSignal) Unit) (Unit)
 
 -- | Handle the `"message"` signal.
 onMessage :: ChildProcess -> (Foreign -> Maybe Handle -> Effect Unit) -> Effect Unit

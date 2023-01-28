@@ -385,7 +385,7 @@ execa file args buildOptions = do
           , stdoutErr
           , stderrErr
           , exitCode: preview _ExitCode someError
-          , signal: (map Right $ preview _Killed someError) <|> preview _TimedOut someError
+          , signal: preview _Killed someError <|> preview _TimedOut someError
           , stdout: stdout'
           , stderr: stderr'
           , command
@@ -614,7 +614,7 @@ getEscapedCommand file args = do
 
 data SpawnResult
   = ExitCode Int
-  | Killed String
+  | Killed (Either Int String)
   | SpawnError ChildProcess.Error
   | StdinError Error
   | TimedOut (Either Int String)
@@ -624,7 +624,7 @@ _ExitCode = prism ExitCode case _ of
   ExitCode i -> Right i
   other -> Left other
 
-_Killed :: Prism' SpawnResult String
+_Killed :: Prism' SpawnResult (Either Int String)
 _Killed = prism Killed case _ of
   Killed sig -> Right sig
   other -> Left other
