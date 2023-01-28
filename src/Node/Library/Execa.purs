@@ -41,7 +41,7 @@ import Data.String.Regex as Regex
 import Data.String.Regex.Flags (global, noFlags)
 import Data.String.Regex.Unsafe (unsafeRegex)
 import Effect (Effect)
-import Effect.Aff (Aff, Error, Milliseconds(..), effectCanceler, finally, joinFiber, makeAff, never, nonCanceler, suspendAff)
+import Effect.Aff (Aff, Error, Milliseconds(..), effectCanceler, finally, forkAff, joinFiber, makeAff, never, nonCanceler, suspendAff)
 import Effect.Class (liftEffect)
 import Effect.Exception (throw)
 import Effect.Exception as Exception
@@ -409,7 +409,7 @@ execa file args buildOptions = do
         <*> joinFiber stdoutFiber
         <*> joinFiber stderrFiber
 
-  run <- suspendAff do
+  run <- forkAff do
     result <- getSpawnResult
     case result.main, result.stdout.error, result.stderr.error of
       ExitCode 0, Nothing, Nothing -> do
