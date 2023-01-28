@@ -235,9 +235,14 @@ handleArguments file args initOptions = do
       }
   pure { file: parsed.command, args: parsed.args, options, parsed }
 
+-- | Re-exposes all the bindings for `ChildProcess`.
+-- | In addition exposes, the following:
 -- | `run` - gets the result of the process via `joinFiber run`
 -- | `cancel` - kill the child process, but indicate it was cancelled rather than killed in the error message
--- | `all` - interleave `stdout`/`stderr` into one stream
+-- | `stdin.stream` - access the child process' `stdin`
+-- | `stdin.writeUt8` - Write a string to the child process' `stdin`
+-- | `stdin.writeUt8End` - Write a string to the child process' `stdin` and then `end` the stream
+-- | `stdin.end` - End the child process' `stdin`
 type ExecaProcess =
   { cancel :: Aff Unit
   , channel :: Aff (Maybe { ref :: Effect Unit, unref :: Effect Unit })
