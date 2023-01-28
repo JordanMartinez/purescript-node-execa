@@ -273,8 +273,14 @@ type ExecaProcess =
       , writeUtf8End :: String -> Aff Unit
       , end :: Aff Unit
       }
-  , stdout :: Readable ()
-  , stderr :: Readable ()
+  , stdout ::
+      { stream :: Readable ()
+      , output :: Aff { text :: String, error :: Maybe Exception.Error }
+      }
+  , stderr ::
+      { stream :: Readable ()
+      , output :: Aff { text :: String, error :: Maybe Exception.Error }
+      }
   , stdio :: Aff (Array Foreign)
   , unref :: Aff Unit
   }
@@ -384,31 +390,35 @@ execa file args buildOptions = do
 
     bufferToString = ImmutableBuffer.toString parsed.options.encoding
 
+    mkStdIoFiber stream = suspendAff do
+      streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
+      text <- liftEffect do
+        text <- bufferToString <$> handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } streamResult.buffer
+        when (isJust streamResult.inputError) do
+          destroy stream
+        pure text
+      pure { text, error: streamResult.inputError }
+
+  stdoutFiber <- mkStdIoFiber (stdout spawned)
+  stderrFiber <- mkStdIoFiber (stdout spawned)
+
+  let
     getSpawnResult = do
       { main: _, stdout: _, stderr: _ }
         <$> joinFiber processDoneFiber
-        <*> getStreamBuffer (stdout spawned) { maxBuffer: Just parsed.options.maxBuffer }
-        <*> getStreamBuffer (stderr spawned) { maxBuffer: Just parsed.options.maxBuffer }
+        <*> joinFiber stdoutFiber
+        <*> joinFiber stderrFiber
 
   run <- suspendAff do
     result <- getSpawnResult
-    let
-      handleOutput' stream getStreamResult = liftEffect do
-        buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } getStreamResult.buffer
-        when (isJust getStreamResult.inputError) do
-          destroy stream
-        pure buf
-
-    stdout' <- bufferToString <$> handleOutput' (stdout spawned) result.stdout
-    stderr' <- bufferToString <$> handleOutput' (stderr spawned) result.stderr
-    case result.main, result.stdout.inputError, result.stderr.inputError of
+    case result.main, result.stdout.error, result.stderr.error of
       ExitCode 0, Nothing, Nothing -> do
         pure $ Right
           { command
           , escapedCommand
           , exitCode: 0
-          , stdout: stdout'
-          , stderr: stderr'
+          , stdout: result.stdout.text
+          , stderr: result.stderr.text
           }
       someError, stdoutErr, stderrErr -> liftEffect do
         isCanceled <- Ref.read isCanceledRef
@@ -420,8 +430,8 @@ execa file args buildOptions = do
           , stderrErr
           , exitCode: preview _ExitCode someError
           , signal: preview _Killed someError <|> preview _TimedOut someError
-          , stdout: stdout'
-          , stderr: stderr'
+          , stdout: result.stdout.text
+          , stderr: result.stderr.text
           , command
           , escapedCommand
           , parsed
@@ -469,8 +479,14 @@ execa file args buildOptions = do
         , end: liftEffect do
             void $ Stream.end (stdin spawned) mempty
         }
-    , stdout: stdout spawned
-    , stderr: stderr spawned
+    , stdout:
+        { stream: stdout spawned
+        , output: joinFiber stdoutFiber
+        }
+    , stderr:
+        { stream: stderr spawned
+        , output: joinFiber stderrFiber
+        }
     , stdio: liftEffect $ stdio spawned
     , cancel
     , result: joinFiber run
