@@ -4,7 +4,7 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
-import Effect.Aff (Aff, joinFiber)
+import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.Execa.Utils (utf8)
@@ -19,21 +19,21 @@ spec = do
     it "`echo test` should fail due to a Node.js bug" do
       spawned <- execa "echo" [] identity
       spawned.stdin.writeUtf8End "test"
-      result <- joinFiber spawned.run
+      result <- spawned.result
       case result of
         Right _ -> fail "Expected EPIPE error"
         Left e -> e.message `shouldContain` "EPIPE"
     describe "`cat` tests" do
       it "input is file" do
         spawned <- execa "cat" [ "test.dhall" ] identity
-        result <- joinFiber spawned.run
+        result <- spawned.result
         case result of
           Right r -> r.stdout `shouldContain` "let config ="
           Left e -> fail e.message
       it "input is buffer" do
         spawned <- execa "cat" [ "-" ] identity
         spawned.stdin.writeUtf8End "test"
-        result <- joinFiber spawned.run
+        result <- spawned.result
         case result of
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message
@@ -41,21 +41,21 @@ spec = do
       it "basic cancel produces error" do
         spawned <- execa "bash" [ "test/fixtures/sleep.sh", "1" ] identity
         spawned.cancel
-        result <- joinFiber spawned.run
+        result <- spawned.result
         case result of
           Right _ -> fail "Cancelling should work"
           Left e -> e.isCanceled `shouldEqual` true
       it "basic kill (string) produces error" do
         spawned <- execa "bash" [ "test/fixtures/sleep.sh", "1" ] identity
         _ <- spawned.killWithSignal (Right "SIGTERM")
-        result <- joinFiber spawned.run
+        result <- spawned.result
         case result of
           Right _ -> fail "Cancelling should work"
           Left e -> e.signal `shouldEqual` (Just $ Right "SIGTERM")
       it "basic kill (int) produces error" do
         spawned <- execa "bash" [ "test/fixtures/sleep.sh", "1" ] identity
         _ <- spawned.killWithSignal (Left signals.byName."SIGTERM".number)
-        result <- joinFiber spawned.run
+        result <- spawned.result
         case result of
           Right _ -> fail "Cancelling should work"
           Left e -> case e.signal of
@@ -78,14 +78,14 @@ spec = do
     describe "`cat` tests" do
       it "input is file" do
         spawned <- execaCommand "cat test.dhall" identity
-        result <- joinFiber spawned.run
+        result <- spawned.result
         case result of
           Right r -> r.stdout `shouldContain` "let config ="
           Left e -> fail e.message
       it "input is buffer" do
         spawned <- execaCommand "cat -" identity
         spawned.stdin.writeUtf8End "test"
-        result <- joinFiber spawned.run
+        result <- spawned.result
         case result of
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message

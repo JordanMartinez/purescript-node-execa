@@ -41,7 +41,7 @@ import Data.String.Regex as Regex
 import Data.String.Regex.Flags (global, noFlags)
 import Data.String.Regex.Unsafe (unsafeRegex)
 import Effect (Effect)
-import Effect.Aff (Aff, Error, Fiber, Milliseconds(..), effectCanceler, finally, joinFiber, makeAff, never, nonCanceler, suspendAff)
+import Effect.Aff (Aff, Error, Milliseconds(..), effectCanceler, finally, joinFiber, makeAff, never, nonCanceler, suspendAff)
 import Effect.Class (liftEffect)
 import Effect.Exception (throw)
 import Effect.Exception as Exception
@@ -237,7 +237,7 @@ handleArguments file args initOptions = do
 
 -- | Re-exposes all the bindings for `ChildProcess`.
 -- | In addition exposes, the following:
--- | `run` - gets the result of the process via `joinFiber run`
+-- | `result` - gets the result of the process
 -- | `cancel` - kill the child process, but indicate it was cancelled rather than killed in the error message
 -- | `stdin.stream` - access the child process' `stdin`
 -- | `stdin.writeUt8` - Write a string to the child process' `stdin`
@@ -262,7 +262,7 @@ type ExecaProcess =
   , pid :: Aff (Maybe Pid)
   , pidExists :: Aff Boolean
   , ref :: Aff Unit
-  , run :: Fiber (Either ExecaError ExecaSuccess)
+  , result :: Aff (Either ExecaError ExecaSuccess)
   , send :: Foreign -> Handle -> ({ keepOpen :: Maybe Boolean } -> { keepOpen :: Maybe Boolean }) -> Effect Unit -> Aff Boolean
   , signalCode :: Aff (Maybe String)
   , spawnArgs :: Array String
@@ -473,7 +473,7 @@ execa file args buildOptions = do
     , stderr: stderr spawned
     , stdio: liftEffect $ stdio spawned
     , cancel
-    , run
+    , result: joinFiber run
     }
 
 -- | - `cleanup` (default: `true`): Kill the spawned process when the parent process exits unless either:
