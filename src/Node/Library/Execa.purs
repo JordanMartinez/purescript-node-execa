@@ -288,19 +288,19 @@ type ExecaSuccess =
   }
 
 -- | Replacement for `childProcess.spawn`. Since this is asynchronous,
--- | the returned value will not provide any results until one calls `joinFiber run`:
--- | `execa ... >>= \result -> joinFiber result.run`. 
+-- | the returned value will not provide any results until one calls `spawned.result`:
+-- | `execa ... >>= \spawned -> spawned.result`. 
 -- |
 -- | Override the default options using record update syntax.
 -- | If defaults are good enough, just use `identity`.
 -- | ```
--- | result <- execa "git checkout -b my-branch" (_
+-- | spawned <- execa "git checkout -b my-branch" (_
 -- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
 -- |    })
--- | joinFiber result.run
+-- | spawned.result
 -- |
--- | result2 <- execa "git checkout -b my-branch" identity
--- | joinFiber result2.run
+-- | spawned2 <- execa "git checkout -b my-branch" identity
+-- | spawned2.result
 -- | ```
 execa :: String -> Array String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaProcess
 execa file args buildOptions = do
