@@ -6,7 +6,7 @@
 module Node.Library.Execa
   ( ExecaError
   , ExecaOptions
-  , ExecaResult
+  , ExecaProcess
   , ExecaSuccess
   , execa
   , ExecaSyncOptions
@@ -14,20 +14,27 @@ module Node.Library.Execa
   , execaSync
   , execaCommand
   , execaCommandSync
+  , Handle
+  , ChildProcessError
   ) where
 
 import Prelude
 
 import Control.Alternative ((<|>), guard)
+import Control.Monad.Except (runExcept)
 import Control.Parallel (parOneOf)
 import Data.Array as Array
 import Data.Either (Either(..), either)
 import Data.Foldable (for_, sequence_)
+import Data.Foldable as Foldable
+import Data.Generic.Rep (class Generic)
 import Data.Int (floor, toNumber)
 import Data.Lens (Prism', is, preview, prism)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
 import Data.Nullable (Nullable, toMaybe)
+import Data.Posix (Pid)
+import Data.Show.Generic (genericShow)
 import Data.String as String
 import Data.String.Regex (Regex, test)
 import Data.String.Regex as Regex
@@ -40,8 +47,8 @@ import Effect.Exception (throw)
 import Effect.Exception as Exception
 import Effect.Ref as Ref
 import Effect.Timer (clearTimeout, setTimeout)
-import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn3, runEffectFn1, runEffectFn2)
-import Foreign (Foreign)
+import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, EffectFn5, mkEffectFn1, mkEffectFn2, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3, runEffectFn5)
+import Foreign (Foreign, readInt, readString, renderForeignError, unsafeToForeign)
 import Foreign.Object (Object)
 import Foreign.Object as Object
 import Node.Buffer (unsafeThaw)
@@ -49,20 +56,18 @@ import Node.Buffer.Immutable (ImmutableBuffer)
 import Node.Buffer.Immutable as ImmutableBuffer
 import Node.Buffer.Internal as Buffer
 import Node.Encoding (Encoding(..))
-import Node.Library.Execa.ChildProcess (ChildProcess, KillSignal, fromKillSignal, intKillSignal, kill, kill', onError, onExit, spawnSync, stderr, stdin, stdout, stringKillSignal)
-import Node.Library.Execa.ChildProcess as ChildProcess
 import Node.Library.Execa.CrossSpawn (CrossSpawnConfig)
 import Node.Library.Execa.CrossSpawn as CrossSpawn
 import Node.Library.Execa.GetStream (getStreamBuffer)
-import Node.Library.Execa.MergeStream as MergeStreams
 import Node.Library.Execa.NpmRunPath (defaultNpmRunPathOptions, npmRunPathEnv)
 import Node.Library.Execa.SignalExit as SignalExit
 import Node.Library.Execa.StripFinalNewline (stripFinalNewlineBuf)
 import Node.Library.HumanSignals (signals)
 import Node.Process as Process
-import Node.Stream (Duplex, destroy)
+import Node.Stream (Readable, Writable, destroy)
 import Node.Stream as Stream
 import Node.Stream as Streams
+import Partial.Unsafe (unsafeCrashWith)
 import Record as Record
 import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
@@ -230,22 +235,43 @@ handleArguments file args initOptions = do
       }
   pure { file: parsed.command, args: parsed.args, options, parsed }
 
--- | `childProcess` - access to the child process itself
 -- | `run` - gets the result of the process via `joinFiber run`
 -- | `cancel` - kill the child process, but indicate it was cancelled rather than killed in the error message
 -- | `all` - interleave `stdout`/`stderr` into one stream
-type ExecaResult =
-  { all ::
-      Aff
-        { result :: Aff { inputError :: Maybe Error, string :: String }
-        , stream :: Duplex
-        }
-  , cancel :: Effect Unit
-  , childProcess :: ChildProcess
+type ExecaProcess =
+  { cancel :: Aff Unit
+  , channel :: Aff (Maybe { ref :: Effect Unit, unref :: Effect Unit })
+  , connected :: Aff Boolean
+  , disconnect :: Aff Unit
+  , exitCode :: Aff (Maybe Int)
+  , kill :: Aff Boolean
+  , killForced :: Milliseconds -> Aff Boolean
+  , killForcedWithSignal :: Either Int String -> Milliseconds -> Aff Boolean
+  , killWithSignal :: Either Int String -> Aff Boolean
+  , killed :: Aff Boolean
+  , onClose :: (Maybe Int -> Maybe String -> Effect Unit) -> Aff Unit
+  , onDisconnect :: Effect Unit -> Aff Unit
+  , onError :: (ChildProcessError -> Effect Unit) -> Aff Unit
+  , onMessage :: (Foreign -> Maybe Handle -> Effect Unit) -> Aff Unit
+  , onSpawn :: Effect Unit -> Aff Unit
+  , pid :: Aff (Maybe Pid)
+  , pidExists :: Aff Boolean
+  , ref :: Aff Unit
   , run :: Fiber (Either ExecaError ExecaSuccess)
-  , writeStdin :: Encoding -> String -> Aff Unit
-  , writeCloseStdin :: Encoding -> String -> Aff Unit
-  , closeStdin :: Aff Unit
+  , send :: Foreign -> Handle -> ({ keepOpen :: Maybe Boolean } -> { keepOpen :: Maybe Boolean }) -> Effect Unit -> Aff Boolean
+  , signalCode :: Aff (Maybe String)
+  , spawnArgs :: Array String
+  , spawnFile :: String
+  , stdin ::
+      { stream :: Writable ()
+      , writeUtf8 :: String -> Aff Unit
+      , writeUtf8End :: String -> Aff Unit
+      , end :: Aff Unit
+      }
+  , stdout :: Readable ()
+  , stderr :: Readable ()
+  , stdio :: Aff (Array Foreign)
+  , unref :: Aff Unit
   }
 
 type ExecaSuccess =
@@ -271,14 +297,14 @@ type ExecaSuccess =
 -- | result2 <- execa "git checkout -b my-branch" identity
 -- | joinFiber result2.run
 -- | ```
-execa :: String -> Array String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaResult
+execa :: String -> Array String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaProcess
 execa file args buildOptions = do
   let options = buildOptions defaultExecaOptions
   parsed <- liftEffect $ handleArguments file args options
   let
     command = joinCommand file args
     escapedCommand = getEscapedCommand file args
-  spawned <- liftEffect $ ChildProcess.spawn parsed.file parsed.args
+  spawned <- liftEffect $ spawn parsed.file parsed.args
     { cwd: options.cwd
     , env: options.env
     , argv0: options.argv0
@@ -294,12 +320,13 @@ execa file args buildOptions = do
     , killSignal: parsed.options.killSignal
     }
   spawnedFiber <- suspendAff $ makeAff \cb -> do
-    onExit spawned case _ of
-      ChildProcess.ExitCode i -> do
-        cb $ Right $ ExitCode i
-      ChildProcess.SignalCode sig ->
-        cb $ Right $ Killed sig
-    onError spawned \error -> do
+    onExit spawned \e s -> do
+      case e, s of
+        Just i, _ -> cb $ Right $ ExitCode i
+        _, Just sig -> cb $ Right $ Killed $ fromKillSignal sig
+        _, _ -> unsafeCrashWith "Impossible: either exit code or signal code must be non-null"
+
+    runEffectFn2 onErrorImpl spawned $ mkEffectFn1 \error -> do
       cb $ Right $ SpawnError error
 
     Streams.onError (stdin spawned) \error ->
@@ -310,7 +337,7 @@ execa file args buildOptions = do
       Just milliseconds, Just killSignal -> do
         makeAff \cb -> do
           tid <- setTimeout ((unsafeCoerce :: Number -> Int) milliseconds) do
-            void $ kill' killSignal { forceKillAfterTimeout: Nothing } spawned
+            void $ kill'' (toKillSignal killSignal) Nothing spawned
             cb $ Right $ TimedOut killSignal
           pure $ effectCanceler do
             clearTimeout tid
@@ -332,7 +359,7 @@ execa file args buildOptions = do
         ( do
             liftEffect do
               removal <- SignalExit.onExit \_ _ -> do
-                void $ kill' (Right "SIGTERM") { forceKillAfterTimeout: Nothing } spawned
+                void $ runEffectFn3 killImpl spawned (stringKillSignal "SIGTERM") { forceKillAfterTimeout: Nothing }
               Ref.write (Just removal) removeHandlerRef
             joinFiber mainFiber
         )
@@ -344,7 +371,8 @@ execa file args buildOptions = do
   -- we force end-users to write to `stdin` via
   -- its `Stream` interface.
   let
-    cancel = do
+    cancel :: Aff Unit
+    cancel = liftEffect do
       killSucceeded <- kill spawned
       when killSucceeded do
         Ref.write true isCanceledRef
@@ -365,6 +393,7 @@ execa file args buildOptions = do
         when (isJust getStreamResult.inputError) do
           destroy stream
         pure buf
+
     stdout' <- bufferToString <$> handleOutput' (stdout spawned) result.stdout
     stderr' <- bufferToString <$> handleOutput' (stderr spawned) result.stderr
     case result.main, result.stdout.inputError, result.stderr.inputError of
@@ -378,7 +407,7 @@ execa file args buildOptions = do
           }
       someError, stdoutErr, stderrErr -> liftEffect do
         isCanceled <- Ref.read isCanceledRef
-        killed <- ChildProcess.killed spawned
+        killed' <- killed spawned
         pure $ Left $ mkError
           { error: preview _SpawnError someError
           , stdinErr: preview _StdinError someError
@@ -393,36 +422,53 @@ execa file args buildOptions = do
           , parsed
           , timedOut: is _TimedOut someError
           , isCanceled
-          , killed
+          , killed: killed'
           }
 
-  allStream <- suspendAff $ liftEffect do
-    duplex <- MergeStreams.mergeStreams \iface -> do
-      _ <- MergeStreams.add (stdout spawned) iface
-      void $ MergeStreams.add (stderr spawned) iface
-    pure
-      { stream: duplex
-      , result: do
-          { buffer, inputError } <- getStreamBuffer duplex { maxBuffer: Just $ parsed.options.maxBuffer * 2.0 }
-          pure { string: bufferToString buffer, inputError }
-      }
   pure
-    { childProcess: spawned
-    , run
+    { channel: liftEffect $ channel spawned
+    , connected: liftEffect $ connected spawned
+    , disconnect: liftEffect $ disconnect spawned
+    , exitCode: liftEffect $ exitCode spawned
+    , kill: liftEffect $ kill spawned
+    , killWithSignal: \signal -> liftEffect do
+        kill' (toKillSignal signal) spawned
+    , killForced: \forceKillAfterTimeout -> liftEffect do
+        kill'' (stringKillSignal "SIGTERM") (Just forceKillAfterTimeout) spawned
+    , killForcedWithSignal: \signal forceKillAfterTimeout -> liftEffect do
+        kill'' (toKillSignal signal) (Just forceKillAfterTimeout) spawned
+    , pidExists: liftEffect $ pidExists spawned
+    , killed: liftEffect $ killed spawned
+    , pid: liftEffect $ pid spawned
+    , unref: liftEffect $ unref spawned
+    , ref: liftEffect $ ref spawned
+    , send: \foreignData handle mkOptions cb -> liftEffect do
+        send spawned foreignData handle mkOptions cb
+    , signalCode: liftEffect $ signalCode spawned
+    , spawnArgs: spawnArgs spawned
+    , spawnFile: spawnFile spawned
+    , onClose: \cb -> liftEffect $ onClose spawned cb
+    , onDisconnect: \cb -> liftEffect $ onDisconnect spawned cb
+    , onError: \cb -> liftEffect $ onError spawned cb
+    , onMessage: \cb -> liftEffect $ onMessage spawned cb
+    , onSpawn: \cb -> liftEffect $ onSpawn spawned cb
+    , stdin:
+        { stream: stdin spawned
+        , writeUtf8: \string -> liftEffect do
+            buf <- Buffer.fromString string UTF8
+            void $ Stream.write (stdin spawned) buf mempty
+        , writeUtf8End: \string -> liftEffect do
+            buf <- Buffer.fromString string UTF8
+            void $ Stream.write (stdin spawned) buf mempty
+            void $ Stream.end (stdin spawned) mempty
+        , end: liftEffect do
+            void $ Stream.end (stdin spawned) mempty
+        }
+    , stdout: stdout spawned
+    , stderr: stderr spawned
+    , stdio: liftEffect $ stdio spawned
     , cancel
-    , all: joinFiber allStream
-    , writeStdin: \encoding str -> do
-        liftEffect do
-          buf <- Buffer.fromString str encoding
-          void $ Stream.write (stdin spawned) buf mempty
-    , writeCloseStdin: \encoding str -> do
-        liftEffect do
-          buf <- Buffer.fromString str encoding
-          void $ Stream.write (stdin spawned) buf mempty
-          void $ Stream.end (stdin spawned) mempty
-    , closeStdin: do
-        liftEffect do
-          void $ Stream.end (stdin spawned) mempty
+    , run
     }
 
 -- | - `cleanup` (default: `true`): Kill the spawned process when the parent process exits unless either:
@@ -615,7 +661,7 @@ getEscapedCommand file args = do
 data SpawnResult
   = ExitCode Int
   | Killed (Either Int String)
-  | SpawnError ChildProcess.Error
+  | SpawnError ChildProcessError
   | StdinError Error
   | TimedOut (Either Int String)
 
@@ -629,7 +675,7 @@ _Killed = prism Killed case _ of
   Killed sig -> Right sig
   other -> Left other
 
-_SpawnError :: Prism' SpawnResult ChildProcess.Error
+_SpawnError :: Prism' SpawnResult ChildProcessError
 _SpawnError = prism SpawnError case _ of
   SpawnError a -> Right a
   other -> Left other
@@ -737,7 +783,7 @@ type ExecaError =
 mkError
   :: { stdout :: String
      , stderr :: String
-     , error :: Maybe ChildProcess.Error
+     , error :: Maybe ChildProcessError
      , stdinErr :: Maybe Exception.Error
      , stdoutErr :: Maybe Exception.Error
      , stderrErr :: Maybe Exception.Error
@@ -751,53 +797,53 @@ mkError
      , killed :: Boolean
      }
   -> ExecaError
-mkError { stdout, stderr, error, stdinErr, stdoutErr, stderrErr, signal, exitCode, command, escapedCommand, parsed, timedOut, isCanceled, killed } =
-  { originalMessage: (error >>= _.message >>> toMaybe) <|> (map Exception.message $ stdinErr <|> stdoutErr <|> stderrErr)
+mkError r =
+  { originalMessage: (r.error >>= _.message >>> toMaybe) <|> (map Exception.message $ r.stdinErr <|> r.stdoutErr <|> r.stderrErr)
   , message
   , shortMessage
-  , escapedCommand
-  , exitCode
-  , signal
+  , escapedCommand: r.escapedCommand
+  , exitCode: r.exitCode
+  , signal: r.signal
   , signalDescription
-  , stdout
-  , stderr
+  , stdout: r.stdout
+  , stderr: r.stderr
   , failed: true
-  , timedOut: timedOut
-  , isCanceled: isCanceled
-  , killed: killed && not timedOut
+  , timedOut: r.timedOut
+  , isCanceled: r.isCanceled
+  , killed: r.killed && not r.timedOut
   }
   where
-  signalDescription = signal >>= case _ of
+  signalDescription = r.signal >>= case _ of
     Left i -> map _.description $ Map.lookup i signals.byNumber
     Right s -> map _.description $ Object.lookup s signals.byString
-  errorCode = map _.code error
+  errorCode = map _.code r.error
   prefix
-    | timedOut
-    , Just timeout <- parsed.options.timeout =
+    | r.timedOut
+    , Just timeout <- r.parsed.options.timeout =
         "timed out after " <> show timeout <> "milliseconds"
-    | isCanceled =
+    | r.isCanceled =
         "was canceled"
     | Just code <- errorCode =
         "failed with " <> code
-    | Just signal' <- signal
+    | Just signal' <- r.signal
     , Just description <- signalDescription =
         "was killed with " <> show signal' <> " (" <> description <> ")"
-    | Just exit <- exitCode =
+    | Just exit <- r.exitCode =
         "failed with exit code " <> show exit
-    | Just err <- stdinErr =
+    | Just err <- r.stdinErr =
         "had error in `stdin`: " <> Exception.message err
-    | Just err <- stdoutErr =
+    | Just err <- r.stdoutErr =
         "had error in `stdout`: " <> Exception.message err
-    | Just err <- stderrErr =
+    | Just err <- r.stderrErr =
         "had error in `stderr`: " <> Exception.message err
     | otherwise =
         "failed"
-  execaMessage = "Command " <> prefix <> ": " <> command
-  shortMessage = execaMessage <> (maybe "" (append "\n") $ (toMaybe <<< _.message) =<< error)
+  execaMessage = "Command " <> prefix <> ": " <> r.command
+  shortMessage = execaMessage <> (maybe "" (append "\n") $ (toMaybe <<< _.message) =<< r.error)
   message = Array.intercalate "\n"
     [ shortMessage
-    , stderr
-    , stdout
+    , r.stderr
+    , r.stdout
     ]
 
 -- | Replacement for `childProcess.exec`. Override the default options
@@ -809,7 +855,7 @@ mkError { stdout, stderr, error, stdinErr, stdoutErr, stderrErr, signal, exitCod
 -- |
 -- | execaCommand "git checkout -b my-branch" identity
 -- | ```
-execaCommand :: String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaResult
+execaCommand :: String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaProcess
 execaCommand s buildOptions = do
   case parseCommand s of
     Just { file, args } ->
@@ -835,3 +881,368 @@ execaCommandSync s buildOptions = do
       execaSync file args buildOptions
     Nothing ->
       liftEffect $ throw $ "Command " <> show s <> " could not be parsed into `{ file :: String, args :: Array String }` value."
+
+{-
+
+### Child Process Module Start ###
+
+-}
+
+-- | A handle for inter-process communication (IPC).
+foreign import data Handle :: Type
+
+-- | Opaque type returned by `spawn`.
+-- | Needed as input for most methods in this module.
+foreign import data ChildProcess :: Type
+
+channel
+  :: ChildProcess
+  -> Effect (Maybe { ref :: Effect Unit, unref :: Effect Unit })
+channel cp = toMaybe <$> runEffectFn1 channelImpl cp
+
+foreign import channelImpl :: EffectFn1 (ChildProcess) (Nullable { ref :: Effect Unit, unref :: Effect Unit })
+
+-- | Indicates whether it is still possible to send and receive
+-- | messages from the child process.
+connected
+  :: ChildProcess
+  -> Effect Boolean
+connected cp = runEffectFn1 connectedImpl cp
+
+foreign import connectedImpl :: EffectFn1 (ChildProcess) Boolean
+
+-- | Closes the IPC channel between parent and child.
+disconnect :: ChildProcess -> Effect Unit
+disconnect cp = runEffectFn1 disconnectImpl cp
+
+foreign import disconnectImpl :: EffectFn1 (ChildProcess) Unit
+
+exitCode :: ChildProcess -> Effect (Maybe Int)
+exitCode cp = toMaybe <$> runEffectFn1 exitCodeImpl cp
+
+foreign import exitCodeImpl :: EffectFn1 (ChildProcess) (Nullable Int)
+
+-- | Same as `kill' SIGTERM`
+kill :: ChildProcess -> Effect Boolean
+kill = kill' (stringKillSignal "SIGTERM")
+
+kill' :: KillSignal -> ChildProcess -> Effect Boolean
+kill' sig cp = kill'' sig Nothing cp
+
+kill'' :: KillSignal -> Maybe Milliseconds -> ChildProcess -> Effect Boolean
+kill'' sig forceKillAfterTimeout cp = runEffectFn3 killImpl cp sig { forceKillAfterTimeout }
+
+-- | Send a signal to a child process. In the same way as the
+-- | [unix kill(2) system call](https://linux.die.net/man/2/kill),
+-- | sending a signal to a child process won't necessarily kill it.
+-- |
+-- | The resulting effects of this function depend on the process
+-- | and the signal. They can vary from system to system.
+-- | The child process might emit an `"error"` event if the signal
+-- | could not be delivered.
+-- |
+-- | If `forceKillAfterTimeout` is defined and
+-- | the kill signal was successful, `childProcess.kill "SIGKILL"`
+-- | will be called once the timeout is reached.
+foreign import killImpl :: EffectFn3 (ChildProcess) KillSignal { forceKillAfterTimeout :: Maybe Milliseconds } Boolean
+
+pidExists :: ChildProcess -> Effect Boolean
+pidExists cp = runEffectFn1 pidExistsImpl cp
+
+foreign import pidExistsImpl :: EffectFn1 (ChildProcess) Boolean
+
+killed :: ChildProcess -> Effect Boolean
+killed cp = runEffectFn1 killedImpl cp
+
+foreign import killedImpl :: EffectFn1 (ChildProcess) Boolean
+
+-- | The process ID of a child process. Note that if the process has already
+-- | exited, another process may have taken the same ID, so be careful!
+pid :: ChildProcess -> Effect (Maybe Pid)
+pid cp = toMaybe <$> runEffectFn1 pidImpl cp
+
+foreign import pidImpl :: EffectFn1 (ChildProcess) (Nullable Pid)
+
+ref :: ChildProcess -> Effect Unit
+ref cp = runEffectFn1 refImpl cp
+
+foreign import refImpl :: EffectFn1 (ChildProcess) Unit
+
+unref :: ChildProcess -> Effect Unit
+unref cp = runEffectFn1 unrefImpl cp
+
+foreign import unrefImpl :: EffectFn1 (ChildProcess) Unit
+
+type SendOptions =
+  { keepOpen :: Maybe Boolean
+  }
+
+type JsSendOptions =
+  { keepOpen :: Boolean
+  }
+
+-- | Send messages to the (`nodejs`) child process.
+-- |
+-- | See the [node documentation](https://nodejs.org/api/child_process.html#child_process_subprocess_send_message_sendhandle_options_callback)
+-- | for in-depth documentation.
+send
+  :: ChildProcess
+  -> Foreign
+  -> Handle
+  -> (SendOptions -> SendOptions)
+  -> Effect Unit
+  -> Effect Boolean
+send cp msg handle buildOptions cb = runEffectFn5 sendImpl cp msg handle jsOptions cb
+  where
+  options = buildOptions { keepOpen: Nothing }
+  jsOptions = { keepOpen: fromMaybe undefined options.keepOpen }
+
+foreign import sendImpl :: EffectFn5 (ChildProcess) (Foreign) (Handle) (JsSendOptions) (Effect Unit) (Boolean)
+
+signalCode
+  :: ChildProcess
+  -> Effect (Maybe String)
+signalCode cp = map toMaybe $ runEffectFn1 signalCodeImpl cp
+
+foreign import signalCodeImpl :: EffectFn1 (ChildProcess) (Nullable String)
+
+foreign import spawnArgs :: ChildProcess -> Array String
+
+foreign import spawnFile :: ChildProcess -> String
+
+-- | The standard input stream of a child process.
+foreign import stdin :: ChildProcess -> Writable ()
+
+stdio :: ChildProcess -> Effect (Array Foreign)
+stdio cp = runEffectFn1 stdioImpl cp
+
+foreign import stdioImpl :: EffectFn1 (ChildProcess) (Array Foreign)
+
+-- | The standard output stream of a child process.
+foreign import stdout :: ChildProcess -> Readable ()
+
+-- | The standard error stream of a child process.
+foreign import stderr :: ChildProcess -> Readable ()
+
+-- | Handle the `"close"` signal.
+onClose :: ChildProcess -> (Maybe Int -> Maybe String -> Effect Unit) -> Effect Unit
+onClose cp cb = runEffectFn2 onCloseImpl cp $ mkEffectFn2 \a b -> cb (toMaybe a) (toMaybe b)
+
+foreign import onCloseImpl :: EffectFn2 (ChildProcess) (EffectFn2 (Nullable Int) (Nullable String) Unit) (Unit)
+
+-- | Handle the `"disconnect"` signal.
+onDisconnect :: ChildProcess -> Effect Unit -> Effect Unit
+onDisconnect cp cb = runEffectFn2 onDisconnectImpl cp cb
+
+foreign import onDisconnectImpl :: EffectFn2 (ChildProcess) (Effect Unit) (Unit)
+
+-- | Handle the `"error"` signal.
+onError :: ChildProcess -> (ChildProcessError -> Effect Unit) -> Effect Unit
+onError cp cb = runEffectFn2 onErrorImpl cp $ mkEffectFn1 cb
+
+foreign import onErrorImpl :: EffectFn2 (ChildProcess) (EffectFn1 ChildProcessError Unit) (Unit)
+
+onExit :: ChildProcess -> (Maybe Int -> Maybe KillSignal -> Effect Unit) -> Effect Unit
+onExit cp cb = runEffectFn2 onExitImpl cp $ mkEffectFn2 \e s ->
+  cb (toMaybe e) (toMaybe s)
+
+foreign import onExitImpl :: EffectFn2 (ChildProcess) (EffectFn2 (Nullable Int) (Nullable KillSignal) Unit) (Unit)
+
+-- | Handle the `"message"` signal.
+onMessage :: ChildProcess -> (Foreign -> Maybe Handle -> Effect Unit) -> Effect Unit
+onMessage cp cb = runEffectFn2 onMessageImpl cp $ mkEffectFn2 \a b -> cb a (toMaybe b)
+
+foreign import onMessageImpl :: EffectFn2 (ChildProcess) (EffectFn2 Foreign (Nullable Handle) Unit) (Unit)
+
+onSpawn :: ChildProcess -> Effect Unit -> Effect Unit
+onSpawn cp cb = runEffectFn2 onSpawnImpl cp cb
+
+foreign import onSpawnImpl :: EffectFn2 (ChildProcess) (Effect Unit) Unit
+
+-- | either Int or String
+foreign import data KillSignal :: Type
+
+toKillSignal :: Either Int String -> KillSignal
+toKillSignal = either intKillSignal stringKillSignal
+
+intKillSignal :: Int -> KillSignal
+intKillSignal = unsafeCoerce
+
+stringKillSignal :: String -> KillSignal
+stringKillSignal = unsafeCoerce
+
+fromKillSignal :: KillSignal -> Either Int String
+fromKillSignal ks = do
+  let
+    ksFor :: Foreign
+    ksFor = unsafeCoerce ks
+    renderError errs = unsafeCrashWith
+      $ append "Unexpected kill signal. Value should be String or Int but got these errors: "
+      $ Foldable.intercalate "; "
+      $ map renderForeignError errs
+
+  either renderError identity $ runExcept $ (Left <$> readInt ksFor) <|> (Right <$> readString ksFor)
+
+data SerializationOption
+  = SerializeJson
+  | SerializeAdvanced
+
+derive instance Eq SerializationOption
+derive instance Generic SerializationOption _
+instance Show SerializationOption where
+  show x = genericShow x
+
+toJsSerialization :: SerializationOption -> String
+toJsSerialization = case _ of
+  SerializeJson -> "json"
+  SerializeAdvanced -> "advanced"
+
+-- Note: `signal` option intentionally not supported.
+type SpawnOptions =
+  { cwd :: Maybe String
+  , env :: Maybe (Object String)
+  , argv0 :: Maybe String
+  , stdioExtra :: Maybe (Array Foreign)
+  , detached :: Maybe Boolean
+  , uid :: Maybe Int
+  , gid :: Maybe Int
+  , serialization :: Maybe SerializationOption
+  , shell :: Maybe String
+  , windowsVerbatimArguments :: Maybe Boolean
+  , windowsHide :: Maybe Boolean
+  , timeout :: Maybe Number
+  , killSignal :: Maybe (Either Int String)
+  }
+
+type JsSpawnOptions =
+  { cwd :: String
+  , env :: Object String
+  , argv0 :: String
+  , stdio :: Array Foreign
+  , detached :: Boolean
+  , uid :: Int
+  , gid :: Int
+  , serialization :: String
+  , shell :: String
+  , windowsVerbatimArguments :: Boolean
+  , windowsHide :: Boolean
+  , timeout :: Number
+  , killSignal :: KillSignal
+  }
+
+spawn
+  :: String
+  -> Array String
+  -> SpawnOptions
+  -> Effect ChildProcess
+spawn cmd args options = do
+  runEffectFn3 spawnImpl cmd args
+    { cwd: fromMaybe undefined options.cwd
+    , env: fromMaybe undefined options.env
+    , argv0: fromMaybe undefined options.argv0
+    , detached: fromMaybe undefined options.detached
+    , uid: fromMaybe undefined options.uid
+    , gid: fromMaybe undefined options.gid
+    , serialization: maybe undefined toJsSerialization options.serialization
+    , stdio: [ pipe, pipe, pipe, ipc ] <> fromMaybe [] options.stdioExtra
+    , shell: fromMaybe undefined options.shell
+    , timeout: fromMaybe undefined options.timeout
+    , killSignal: fromMaybe undefined $ map (either intKillSignal stringKillSignal) options.killSignal
+    , windowsHide: fromMaybe undefined options.windowsHide
+    , windowsVerbatimArguments: fromMaybe undefined options.windowsVerbatimArguments
+    }
+  where
+  pipe = unsafeToForeign "pipe"
+  ipc = unsafeToForeign "ipc"
+
+foreign import spawnImpl
+  :: EffectFn3
+       String
+       (Array String)
+       (JsSpawnOptions)
+       (ChildProcess)
+
+type SpawnSyncOptions =
+  { cwd :: Maybe String
+  , input :: Maybe ImmutableBuffer
+  , argv0 :: Maybe String
+  , stdioExtra :: Maybe (Array Foreign)
+  , env :: Maybe (Object String)
+  , uid :: Maybe Int
+  , gid :: Maybe Int
+  , timeout :: Maybe Number
+  , killSignal :: Maybe (Either Int String)
+  , maxBuffer :: Maybe Number
+  , shell :: Maybe String
+  , windowsVerbatimArguments :: Maybe Boolean
+  , windowsHide :: Maybe Boolean
+  }
+
+type JsSpawnSyncOptions =
+  { cwd :: String
+  , argv0 :: String
+  , input :: ImmutableBuffer
+  , stdio :: Array Foreign
+  , env :: Object String
+  , uid :: Int
+  , gid :: Int
+  , timeout :: Number
+  , killSignal :: KillSignal
+  , maxBuffer :: Number
+  , encoding :: String
+  , shell :: String
+  , windowsVerbatimArguments :: Boolean
+  , windowsHide :: Boolean
+  }
+
+type JsSpawnSyncResult =
+  { pid :: Pid
+  , output :: Array Foreign
+  , stdout :: ImmutableBuffer
+  , stderr :: ImmutableBuffer
+  , status :: Nullable Int
+  , signal :: Nullable KillSignal
+  , error :: Nullable ChildProcessError
+  }
+
+spawnSync :: String -> Array String -> SpawnSyncOptions -> Effect JsSpawnSyncResult
+spawnSync file args options = do
+  runEffectFn3 spawnSyncImpl file args jsOptions
+  where
+  pipe = unsafeToForeign "pipe"
+  ignore = unsafeToForeign "ignore"
+  jsOptions =
+    { cwd: fromMaybe undefined options.cwd
+    , argv0: fromMaybe undefined options.argv0
+    , input: fromMaybe undefined options.input
+    , stdio: [ pipe, pipe, pipe, ignore ] <> fromMaybe [] options.stdioExtra
+    , env: fromMaybe undefined options.env
+    , uid: fromMaybe undefined options.uid
+    , gid: fromMaybe undefined options.gid
+    , timeout: fromMaybe undefined options.timeout
+    , killSignal: fromMaybe undefined $ map (either intKillSignal stringKillSignal) options.killSignal
+    , maxBuffer: fromMaybe undefined options.maxBuffer
+    , encoding: "buffer" -- force stdout/stderr in callback to be Buffers
+    , shell: fromMaybe undefined options.shell
+    , windowsHide: fromMaybe undefined options.windowsHide
+    , windowsVerbatimArguments: fromMaybe undefined options.windowsVerbatimArguments
+    }
+
+foreign import spawnSyncImpl
+  :: EffectFn3
+       String
+       (Array String)
+       (JsSpawnSyncOptions)
+       JsSpawnSyncResult
+
+foreign import undefined :: forall a. a
+
+-- | An error which occurred inside a child process.
+type ChildProcessError =
+  { code :: String
+  , errno :: String
+  , syscall :: String
+  , message :: Nullable String
+  }
+
+foreign import bufferToReadStream :: ImmutableBuffer -> Readable ()
