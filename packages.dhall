@@ -12,7 +12,7 @@ in  upstream
           , "unsafe-coerce"
           ]
           , repo = "https://github.com/JordanMartinez/purescript-node-event-emitter.git"
-          , version = "master"
+          , version = "v1.0.1"
           }
       with node-human-signals =
         { dependencies = 
@@ -24,5 +24,5 @@ in  upstream
             , "prelude"
             ]
         , repo = "https://github.com/JordanMartinez/purescript-node-human-signals.git"
-        , version = "master"
+        , version = "v1.0.0"
         }
