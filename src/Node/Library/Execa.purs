@@ -43,7 +43,6 @@ import Data.String.Regex.Unsafe (unsafeRegex)
 import Effect (Effect)
 import Effect.Aff (Aff, Error, Milliseconds(..), effectCanceler, finally, forkAff, joinFiber, makeAff, never, nonCanceler, suspendAff)
 import Effect.Class (liftEffect)
-import Effect.Class.Console (log)
 import Effect.Exception (throw)
 import Effect.Exception as Exception
 import Effect.Ref as Ref
@@ -337,35 +336,28 @@ execa file args buildOptions = do
     }
   spawnedFiber <- suspendAff $ makeAff \cb -> do
     onExit spawned \e s -> do
-      log $ "spawnedFiber - onExit"
       case e, s of
         Just i, _ -> cb $ Right $ ExitCode i
         _, Just sig -> cb $ Right $ Killed $ fromKillSignal sig
         _, _ -> unsafeCrashWith "Impossible: either exit code or signal code must be non-null"
 
     runEffectFn2 onErrorImpl spawned $ mkEffectFn1 \error -> do
-      log $ "spawnedFiber - onError"
       cb $ Right $ SpawnError error
 
     Streams.onError (stdin spawned) \error -> do
-      log $ "spawnedFiber - stdin - onError"
       cb $ Right $ StdinError error
     pure nonCanceler
   timeoutFiber <- suspendAff do
     case parsed.options.timeoutWithKillSignal of
       Just { milliseconds, killSignal } -> do
         makeAff \cb -> do
-          log $ "timeoutFiber - before set timeout"
           tid <- setTimeout ((unsafeCoerce :: Number -> Int) milliseconds) do
-            log $ "timeoutFiber - about to call kill"
             void $ kill'' (toKillSignal killSignal) Nothing spawned
             -- Note: should `stdin` be destroyed here, too?
-            log $ "timeoutFiber - destroying streams"
             void $ destroy (stdout spawned)
             void $ destroy (stderr spawned)
             cb $ Right $ TimedOut killSignal
           pure $ effectCanceler do
-            log $ "timeoutFiber - timeout cleared"
             clearTimeout tid
       _ ->
         never
@@ -406,10 +398,8 @@ execa file args buildOptions = do
     bufferToString = ImmutableBuffer.toString parsed.options.encoding
 
     mkStdIoFiber stream = forkAff do
-      log $ "mkStdIoFiber - getStreamBuffer"
       streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
       text <- liftEffect do
-        log $ "mkStdIoFiber - handleOutput"
         text <- bufferToString <$> handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } streamResult.buffer
         when (isJust streamResult.inputError) do
           destroy stream
@@ -428,9 +418,7 @@ execa file args buildOptions = do
         <*> joinFiber stderrFiber
 
   run <- forkAff do
-    log $ "runFiber - about to call getSpawnResult"
     result <- getSpawnResult
-    log $ "runFiber - finished getSpawnResult"
     case result.main, result.stdout.error, result.stderr.error of
       ExitCode 0, Nothing, Nothing -> do
         pure $ Right

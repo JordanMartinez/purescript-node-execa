@@ -11,7 +11,6 @@ import Data.Number (infinity)
 import Effect (Effect)
 import Effect.Aff (Aff, Error, error, makeAff, nonCanceler)
 import Effect.Class (liftEffect)
-import Effect.Class.Console (log)
 import Effect.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn3, mkEffectFn1, runEffectFn3)
 import Node.Buffer (Buffer)
@@ -40,9 +39,7 @@ getStreamBuffer inputStream initialOptions = do
   -- fails or not. It also destroys the input stream if an error occurs
   -- but we'll handle that outside of this function.
   makeAff \cb -> do
-    log $ "getStreamBuffer - pipeline setup"
     runEffectFn3 pipeline inputStream interface.stream $ mkEffectFn1 \err -> do
-      log $ "getStreamBuffer - pipeline"
       bufferedData <- interface.getBufferedValue
       buff <- Buffer.unsafeFreeze bufferedData
       cb $ Right { buffer: buff, inputError: toMaybe err }
