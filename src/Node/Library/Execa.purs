@@ -32,7 +32,7 @@ import Data.Int (floor, toNumber)
 import Data.Lens (Prism', is, preview, prism)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
-import Data.Nullable (Nullable, toMaybe)
+import Data.Nullable (Nullable, toMaybe, toNullable)
 import Data.Posix (Pid)
 import Data.Show.Generic (genericShow)
 import Data.String as String
@@ -735,9 +735,9 @@ spawnedKill
   :: EffectFn3
        (EffectFn1 KillSignal Boolean)
        (Nullable KillSignal)
-       { forceKillAfterTimeout :: Maybe Milliseconds }
+       (Nullable Milliseconds)
        Boolean
-spawnedKill = mkEffectFn3 \killFn numOrStringSignal options -> do
+spawnedKill = mkEffectFn3 \killFn numOrStringSignal forceKillAfterTimeout -> do
   let
     signal = case toMaybe numOrStringSignal of
       Nothing -> Right "SIGTERM"
@@ -747,7 +747,7 @@ spawnedKill = mkEffectFn3 \killFn numOrStringSignal options -> do
     mbTimeout = do
       guard $ isSigTerm signal
       guard killSignalSucceeded
-      options.forceKillAfterTimeout
+      toMaybe forceKillAfterTimeout
   for_ mbTimeout \(Milliseconds timeout) -> do
     t <- runEffectFn2 setTimeoutImpl (floor timeout) do
       void $ runEffectFn1 killFn $ stringKillSignal "SIGKILL"
@@ -765,7 +765,7 @@ foreign import monkeyPatchKill
        ( EffectFn3
            (EffectFn1 KillSignal Boolean)
            (Nullable KillSignal)
-           { forceKillAfterTimeout :: Maybe Milliseconds }
+           (Nullable Milliseconds)
            Boolean
        )
        Unit
@@ -960,7 +960,7 @@ kill' :: KillSignal -> ChildProcess -> Effect Boolean
 kill' sig cp = kill'' sig Nothing cp
 
 kill'' :: KillSignal -> Maybe Milliseconds -> ChildProcess -> Effect Boolean
-kill'' sig forceKillAfterTimeout cp = runEffectFn3 killImpl cp sig { forceKillAfterTimeout }
+kill'' sig forceKillAfterTimeout cp = runEffectFn3 killImpl cp sig (toNullable forceKillAfterTimeout)
 
 -- | Send a signal to a child process. In the same way as the
 -- | [unix kill(2) system call](https://linux.die.net/man/2/kill),
@@ -974,7 +974,7 @@ kill'' sig forceKillAfterTimeout cp = runEffectFn3 killImpl cp sig { forceKillAf
 -- | If `forceKillAfterTimeout` is defined and
 -- | the kill signal was successful, `childProcess.kill "SIGKILL"`
 -- | will be called once the timeout is reached.
-foreign import killImpl :: EffectFn3 (ChildProcess) KillSignal { forceKillAfterTimeout :: Maybe Milliseconds } Boolean
+foreign import killImpl :: EffectFn3 (ChildProcess) KillSignal (Nullable Milliseconds) Boolean
 
 pidExists :: ChildProcess -> Effect Boolean
 pidExists cp = runEffectFn1 pidExistsImpl cp
