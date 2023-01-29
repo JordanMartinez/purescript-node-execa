@@ -405,7 +405,7 @@ execa file args buildOptions = do
 
     bufferToString = ImmutableBuffer.toString parsed.options.encoding
 
-    mkStdIoFiber stream = suspendAff do
+    mkStdIoFiber stream = forkAff do
       log $ "mkStdIoFiber - getStreamBuffer"
       streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
       text <- liftEffect do
@@ -416,13 +416,14 @@ execa file args buildOptions = do
         pure text
       pure { text, error: streamResult.inputError }
 
+  runFiber <- forkAff $ joinFiber processDoneFiber
   stdoutFiber <- mkStdIoFiber (stdout spawned)
   stderrFiber <- mkStdIoFiber (stdout spawned)
 
   let
     getSpawnResult = do
       { main: _, stdout: _, stderr: _ }
-        <$> joinFiber processDoneFiber
+        <$> joinFiber runFiber
         <*> joinFiber stdoutFiber
         <*> joinFiber stderrFiber
 
