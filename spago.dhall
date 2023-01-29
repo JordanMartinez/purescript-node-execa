@@ -3,6 +3,7 @@
   [ "aff"
   , "arrays"
   , "control"
+  , "console"
   , "effect"
   , "either"
   , "exceptions"

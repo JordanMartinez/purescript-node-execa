@@ -6,10 +6,11 @@ import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
+import Effect.Class.Console (log)
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.Execa.Utils (utf8)
 import Node.Library.HumanSignals (signals)
-import Test.Spec (SpecT, describe, it)
+import Test.Spec (SpecT, describe, it, itOnly)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Spec.Assertions.String (shouldContain)
 
@@ -63,10 +64,12 @@ spec = do
             Just (Right s) -> s `shouldEqual` signals.byName."SIGTERM".name
             _ -> fail "Did not get a kill signal"
     describe "timeout produces error" do
-      it "basic timeout produces error" do
+      itOnly "basic timeout produces error" do
         spawned <- execa "bash" [ "test/fixtures/sleep.sh", "10" ]
           (_ { timeout = Just { milliseconds: 400.0, killSignal: Right "SIGTERM" } })
+        log $ "timeout - spawned"
         result <- spawned.result
+        log $ "timeout - got result"
         case result of
           Right _ -> fail "Timeout should work"
           Left e -> do
