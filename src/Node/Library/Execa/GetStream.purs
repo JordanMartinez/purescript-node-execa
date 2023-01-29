@@ -16,8 +16,8 @@ import Effect.Uncurried (EffectFn1, EffectFn3, mkEffectFn1, runEffectFn3)
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
 import Node.Buffer.Immutable (ImmutableBuffer)
-import Node.Stream (Readable, Writable, Duplex, onData)
 import Node.Library.Execa.Utils (newPassThroughStream)
+import Node.Stream (Readable, Writable, Duplex, onData)
 import Unsafe.Coerce (unsafeCoerce)
 
 type Interface =

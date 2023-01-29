@@ -344,7 +344,7 @@ execa file args buildOptions = do
     runEffectFn2 onErrorImpl spawned $ mkEffectFn1 \error -> do
       cb $ Right $ SpawnError error
 
-    Streams.onError (stdin spawned) \error ->
+    Streams.onError (stdin spawned) \error -> do
       cb $ Right $ StdinError error
     pure nonCanceler
   timeoutFiber <- suspendAff do
@@ -397,7 +397,7 @@ execa file args buildOptions = do
 
     bufferToString = ImmutableBuffer.toString parsed.options.encoding
 
-    mkStdIoFiber stream = suspendAff do
+    mkStdIoFiber stream = forkAff do
       streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
       text <- liftEffect do
         text <- bufferToString <$> handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } streamResult.buffer
@@ -406,13 +406,14 @@ execa file args buildOptions = do
         pure text
       pure { text, error: streamResult.inputError }
 
+  runFiber <- forkAff $ joinFiber processDoneFiber
   stdoutFiber <- mkStdIoFiber (stdout spawned)
   stderrFiber <- mkStdIoFiber (stdout spawned)
 
   let
     getSpawnResult = do
       { main: _, stdout: _, stderr: _ }
-        <$> joinFiber processDoneFiber
+        <$> joinFiber runFiber
         <*> joinFiber stdoutFiber
         <*> joinFiber stderrFiber
 
