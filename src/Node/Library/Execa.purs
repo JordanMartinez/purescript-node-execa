@@ -215,10 +215,10 @@ handleArguments file args initOptions = do
     }
   let
     -- validateTimeout
-    { timeout, killSignal } = fromMaybe { timeout: Nothing, killSignal: Nothing } do
-      { milliseconds, killSignal } <- initOptions.timeout
-      guard $ milliseconds > 0.0
-      pure { timeout: Just milliseconds, killSignal: Just killSignal }
+    { timeout, killSignal, timeoutWithKillSignal } = case initOptions.timeout of
+      Just r | r.milliseconds > 0.0 ->
+        { timeout: Just r.milliseconds, killSignal: Just r.killSignal, timeoutWithKillSignal: Just r }
+      _ -> { timeout: Nothing, killSignal: Nothing, timeoutWithKillSignal: Nothing }
 
     options =
       { cleanup: fromMaybe defaultOptions.cleanup initOptions.cleanup
@@ -235,6 +235,7 @@ handleArguments file args initOptions = do
       , shell: initOptions.shell
       , timeout
       , killSignal
+      , timeoutWithKillSignal
       , windowsHide: fromMaybe defaultOptions.windowsHide initOptions.windowsHide
       , windowsVerbatimArguments: fromMaybe defaultOptions.windowsVerbatimArguments parsed.options.windowsVerbatimArguments
       }
@@ -347,8 +348,8 @@ execa file args buildOptions = do
       cb $ Right $ StdinError error
     pure nonCanceler
   timeoutFiber <- suspendAff do
-    case parsed.options.timeout, parsed.options.killSignal of
-      Just milliseconds, Just killSignal -> do
+    case parsed.options.timeoutWithKillSignal of
+      Just { milliseconds, killSignal } -> do
         makeAff \cb -> do
           tid <- setTimeout ((unsafeCoerce :: Number -> Int) milliseconds) do
             void $ kill'' (toKillSignal killSignal) Nothing spawned
@@ -358,7 +359,7 @@ execa file args buildOptions = do
             cb $ Right $ TimedOut killSignal
           pure $ effectCanceler do
             clearTimeout tid
-      _, _ ->
+      _ ->
         never
 
   mainFiber <- suspendAff do
@@ -786,6 +787,7 @@ type ExecaRunOptions =
   , shell :: Maybe String
   , timeout :: Maybe Number
   , killSignal :: Maybe (Either Int String)
+  , timeoutWithKillSignal :: Maybe { milliseconds :: Number, killSignal :: Either Int String }
   , maxBuffer :: Number
   , windowsVerbatimArguments :: Boolean
   , windowsHide :: Boolean
