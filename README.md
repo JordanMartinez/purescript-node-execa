@@ -2,6 +2,14 @@
 
 PureScript port of the [`execa`](https://github.com/sindresorhus/execa) ([NPM library](https://www.npmjs.com/package/execa)) JavaScript library and the relevant parts of all of its relevant dependencies when such dependencies essentially share the same license (i.e. MIT/ISC).
 
+## Differences from `execa` / `child_process` module
+
+- `execa`:
+    - Unsupported: the `all` option, which merges `stdout`/`stderr` into one stream.
+- `child_process`' module
+    - Unsupported: `spawn`'s `serialization` option
+    - Unsupported: `spawn`'s `signal` option, which kills the process if it's corresponding `AbortController` is aborted
+
 ## License requirements
 
 - [`cross-spawn`](https://github.com/moxystudio/node-cross-spawn) - MIT
