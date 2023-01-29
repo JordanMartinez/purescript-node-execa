@@ -341,7 +341,7 @@ execa file args buildOptions = do
         _, Just sig -> cb $ Right $ Killed $ fromKillSignal sig
         _, _ -> unsafeCrashWith "Impossible: either exit code or signal code must be non-null"
 
-    runEffectFn2 onErrorImpl spawned $ mkEffectFn1 \error -> do
+    onError spawned \error -> do
       cb $ Right $ SpawnError error
 
     Streams.onError (stdin spawned) \error -> do
@@ -377,7 +377,7 @@ execa file args buildOptions = do
         ( do
             liftEffect do
               removal <- SignalExit.onExit \_ _ -> do
-                void $ runEffectFn3 killImpl spawned (stringKillSignal "SIGTERM") { forceKillAfterTimeout: Nothing }
+                void $ kill'' (stringKillSignal "SIGTERM") Nothing spawned
               Ref.write (Just removal) removeHandlerRef
             joinFiber mainFiber
         )
