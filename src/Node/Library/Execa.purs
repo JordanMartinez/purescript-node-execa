@@ -353,7 +353,7 @@ execa file args buildOptions = do
         makeAff \cb -> do
           tid <- setTimeout ((unsafeCoerce :: Number -> Int) milliseconds) do
             void $ kill'' (toKillSignal killSignal) Nothing spawned
-            -- Note: should `stdin` be destroyed here, too?
+            void $ destroy (stdin spawned)
             void $ destroy (stdout spawned)
             void $ destroy (stderr spawned)
             cb $ Right $ TimedOut killSignal
