@@ -193,7 +193,12 @@ handleArguments
   :: String
   -> Array String
   -> ExecaOptions
-  -> Effect { file :: String, args :: Array String, options :: ExecaRunOptions, parsed :: CrossSpawnConfig }
+  -> Effect
+       { file :: String
+       , args :: Array String
+       , options :: ExecaRunOptions
+       , parsed :: CrossSpawnConfig
+       }
 handleArguments file args initOptions = do
   parsed <- CrossSpawn.parse file args
     { shell: initOptions.shell
