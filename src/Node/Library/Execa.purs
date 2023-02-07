@@ -278,14 +278,17 @@ type ExecaProcess =
       , writeUtf8 :: String -> Aff Unit
       , writeUtf8End :: String -> Aff Unit
       , end :: Aff Unit
+      , shareParentProcessStdin :: Aff Unit
       }
   , stdout ::
       { stream :: Readable ()
       , output :: Aff { text :: String, error :: Maybe Exception.Error }
+      , pipeToParentStdout :: Aff Unit
       }
   , stderr ::
       { stream :: Readable ()
       , output :: Aff { text :: String, error :: Maybe Exception.Error }
+      , pipeToParentStderr :: Aff Unit
       }
   , stdio :: Aff (Array Foreign)
   , unref :: Aff Unit
@@ -486,14 +489,20 @@ execa file args buildOptions = do
             void $ Stream.end (stdin spawned) mempty
         , end: liftEffect do
             void $ Stream.end (stdin spawned) mempty
+        , shareParentProcessStdin: liftEffect do
+            void $ Stream.pipe Process.stdin (stdin spawned)
         }
     , stdout:
         { stream: stdout spawned
         , output: joinFiber stdoutFiber
+        , pipeToParentStdout: liftEffect do
+            void $ Stream.pipe (stdout spawned) Process.stdout
         }
     , stderr:
         { stream: stderr spawned
         , output: joinFiber stderrFiber
+        , pipeToParentStderr: liftEffect do
+            void $ Stream.pipe (stderr spawned) Process.stderr
         }
     , stdio: liftEffect $ stdio spawned
     , cancel
