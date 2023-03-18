@@ -11,7 +11,7 @@ import Control.Alt ((<|>))
 import Data.Array (any)
 import Data.Array as Array
 import Data.Either (Either(..))
-import Data.Int (fromNumber)
+import Data.Int (floor)
 import Data.Int.Bits ((.&.), (.|.))
 import Data.Maybe (Maybe(..), fromJust, isJust, isNothing, maybe)
 import Data.String (Pattern(..))
@@ -152,9 +152,9 @@ coreNonWindows =
   checkMode :: Stats -> IsExeOptions -> Effect Boolean
   checkMode (Stats statObj) options = do
     let
-      mode = unsafePartial fromJust $ fromNumber statObj.mode
-      uid = unsafePartial fromJust $ fromNumber statObj.uid
-      gid = unsafePartial fromJust $ fromNumber statObj.gid
+      mode = floor statObj.mode
+      uid = floor statObj.uid
+      gid = floor statObj.gid
 
     processMbUid <- getUid
     processMbGid <- getGid
