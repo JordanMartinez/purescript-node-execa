@@ -13,7 +13,7 @@ import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Int (floor)
 import Data.Int.Bits ((.&.), (.|.))
-import Data.Maybe (Maybe(..), fromJust, isJust, isNothing, maybe)
+import Data.Maybe (Maybe(..), isJust, isNothing, maybe)
 import Data.String (Pattern(..))
 import Data.String as String
 import Data.Tuple (Tuple(..), fst)
@@ -26,7 +26,6 @@ import Node.FS.Stats (Stats(..), isFile, isSymbolicLink)
 import Node.FS.Sync as FsSync
 import Node.Platform (Platform(..))
 import Node.Process (lookupEnv, platform)
-import Partial.Unsafe (unsafePartial)
 import Unsafe.Coerce (unsafeCoerce)
 
 type IsExeOptions =
