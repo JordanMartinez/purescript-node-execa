@@ -2,7 +2,7 @@ import process from "process";
 
 export const getUidImpl = (nothing, just) => {
   if (process.getuid) {
-    just(process.getuid());
+    return just(process.getuid());
   } else {
     return nothing;
   }
@@ -10,7 +10,7 @@ export const getUidImpl = (nothing, just) => {
 
 export const getGidImpl = (nothing, just) => {
   if (process.getgid) {
-    just(process.getgid());
+    return just(process.getgid());
   } else {
     return nothing;
   }
