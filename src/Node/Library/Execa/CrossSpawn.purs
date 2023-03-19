@@ -1,3 +1,7 @@
+-- A majority of the below code was ported from this JavaScript library
+-- https://github.com/moxystudio/node-cross-spawn
+-- Copyright `node-cross-spawn` contributors
+-- MIT License: https://opensource.org/license/mit/
 module Node.Library.Execa.CrossSpawn
   ( parse
   , CrossSpawnConfig

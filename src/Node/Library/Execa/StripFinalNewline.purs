@@ -1,3 +1,7 @@
+-- A majority of the below code was ported from this JavaScript library
+-- https://github.com/sindresorhus/strip-final-newline
+-- Copyright `strip-final-newline` contributors
+-- MIT License: https://opensource.org/license/mit/
 module Node.Library.Execa.StripFinalNewline where
 
 import Prelude

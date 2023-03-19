@@ -1,3 +1,7 @@
+-- A majority of the below code was ported from this JavaScript library
+-- https://github.com/isaacs/isexe
+-- Copyright `is-exe` contributors
+-- ISC License: https://opensource.org/license/isc/
 module Node.Library.Execa.IsExe
   ( isExe
   , isExeSync

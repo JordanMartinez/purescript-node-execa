@@ -1,3 +1,7 @@
+-- A majority of the below code was ported from this JavaScript library
+-- https://github.com/npm/node-which
+-- Copyright `node-which` contributors
+-- ISC License: https://opensource.org/license/isc/
 module Node.Library.Execa.Which where
 
 import Prelude

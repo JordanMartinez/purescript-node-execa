@@ -1,3 +1,7 @@
+-- A majority of the below code was ported from this JavaScript library
+-- https://github.com/grncdr/merge-stream
+-- Copyright `merge-stream` contributors
+-- MIT License: https://opensource.org/license/mit/
 module Node.Library.Execa.MergeStream
   ( Interface
   , mergeStreams

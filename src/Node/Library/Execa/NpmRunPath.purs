@@ -1,3 +1,7 @@
+-- A majority of the below code was ported from this JavaScript library
+-- https://github.com/sindresorhus/npm-run-path
+-- Copyright `npm-run-path` contributors
+-- MIT License: https://opensource.org/license/mit/
 module Node.Library.Execa.NpmRunPath where
 
 import Prelude

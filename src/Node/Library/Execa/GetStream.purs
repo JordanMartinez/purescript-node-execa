@@ -1,3 +1,7 @@
+-- A majority of the below code was ported from this JavaScript library
+-- https://github.com/sindresorhus/get-stream
+-- Copyright `get-stream` contributors
+-- MIT License: https://opensource.org/license/mit/
 module Node.Library.Execa.GetStream where
 
 import Prelude

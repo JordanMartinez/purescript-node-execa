@@ -1,3 +1,7 @@
+-- A majority of the below code was ported from this JavaScript library
+-- https://github.com/kevva/shebang-command
+-- Copyright `shebang-command` contributors
+-- MIT License: https://opensource.org/license/mit/
 module Node.Library.Execa.ShebangCommand where
 
 import Prelude
