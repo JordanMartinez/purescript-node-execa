@@ -2,11 +2,12 @@ module Test.Node.Library.Execa where
 
 import Prelude
 
+import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
-import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
+import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync, parseCommand)
 import Node.Library.Execa.Utils (utf8)
 import Node.Library.HumanSignals (signals)
 import Test.Spec (SpecT, describe, it)
@@ -111,3 +112,32 @@ spec = do
         case result of
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message
+  describe "parseCommand" do
+    it "should account for quotes" do
+      let
+        file = "magick"
+        args =
+          [ "-size"
+          , "320x85"
+          , "canvas:none"
+          , "-font"
+          , "Bookman-DemiItalic"
+          , "-pointsize"
+          , "72"
+          , "-draw"
+          , "\"text 25,60 \'Magick\'\""
+          , "-channel"
+          , "RGBA"
+          , "-blur"
+          , "0x6"
+          , "-fill"
+          , "darkred"
+          , "-stroke"
+          , "magenta"
+          , "-draw"
+          , "\"text 20,55 \'Magick\'\""
+          , "fuzzy-magick.png"
+          ]
+        result = parseCommand $ file <> " " <> Array.intercalate " " args
+      Just file `shouldEqual` (map _.file) result
+      Just args `shouldEqual` (map _.args) result

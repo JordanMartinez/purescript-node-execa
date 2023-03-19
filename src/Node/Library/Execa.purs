@@ -12,6 +12,7 @@ module Node.Library.Execa
   , ExecaSyncOptions
   , ExecaSyncResult
   , execaSync
+  , parseCommand
   , execaCommand
   , execaCommandSync
   , Handle
