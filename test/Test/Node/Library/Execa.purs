@@ -5,9 +5,11 @@ import Prelude
 import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Data.String as String
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
-import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync, parseCommand)
+import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
+import Node.Library.Execa.ParseCommand (parseCommand')
 import Node.Library.Execa.Utils (utf8)
 import Node.Library.HumanSignals (signals)
 import Test.Spec (SpecT, describe, it)
@@ -113,31 +115,28 @@ spec = do
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message
   describe "parseCommand" do
-    it "should account for quotes" do
-      let
-        file = "magick"
-        args =
-          [ "-size"
-          , "320x85"
-          , "canvas:none"
-          , "-font"
-          , "Bookman-DemiItalic"
-          , "-pointsize"
-          , "72"
-          , "-draw"
-          , "\"text 25,60 \'Magick\'\""
-          , "-channel"
-          , "RGBA"
-          , "-blur"
-          , "0x6"
-          , "-fill"
-          , "darkred"
-          , "-stroke"
-          , "magenta"
-          , "-draw"
-          , "\"text 20,55 \'Magick\'\""
-          , "fuzzy-magick.png"
-          ]
-        result = parseCommand $ file <> " " <> Array.intercalate " " args
-      Just file `shouldEqual` (map _.file) result
-      Just args `shouldEqual` (map _.args) result
+    let
+      shouldBeFileArgs file args = do
+        let result = parseCommand' $ file <> " " <> Array.intercalate " " args
+        Right (String.trim file) `shouldEqual` (map _.file) result
+        Right (map String.trim args) `shouldEqual` (map _.args) result
+
+      escapeSlash = """\"""
+      escapedSpace = escapeSlash <> " "
+      dquote = "\""
+      squote = "'"
+      escSQuote = escapeSlash <> squote
+      escDQuote = escapeSlash <> dquote
+
+    it "should work despite extra spaces" do
+      shouldBeFileArgs " file  " [ "    arg1", "arg2   ", "   arg3   " ]
+
+    it "should account for escaped spaces, double-quotes, and single-quotes" do
+      shouldBeFileArgs "file" [ "partA" <> escapedSpace <> escDQuote <> escSQuote <> "partB" ]
+
+    it "should account for escaped double-quotes within double-quote context" do
+      shouldBeFileArgs "file" [ dquote <> "partA" <> escDQuote <> "partB" <> dquote ]
+
+    it "should account for escaped single-quotes within single-quote context" do
+      shouldBeFileArgs "file" [ squote <> "partA" <> escSQuote <> "partB" <> squote ]
+
