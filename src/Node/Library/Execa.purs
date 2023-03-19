@@ -60,6 +60,7 @@ import Node.Library.Execa.CrossSpawn (CrossSpawnConfig)
 import Node.Library.Execa.CrossSpawn as CrossSpawn
 import Node.Library.Execa.GetStream (getStreamBuffer)
 import Node.Library.Execa.NpmRunPath (defaultNpmRunPathOptions, npmRunPathEnv)
+import Node.Library.Execa.ParseCommand (parseCommand)
 import Node.Library.Execa.SignalExit as SignalExit
 import Node.Library.Execa.StripFinalNewline (stripFinalNewlineBuf)
 import Node.Library.HumanSignals (signals)
@@ -665,26 +666,6 @@ handleOutput options value
       unsafeThaw value >>= stripFinalNewlineBuf
   | otherwise = pure value
 
--- Handle `execaCommand()`
-parseCommand :: String -> Maybe { file :: String, args :: Array String }
-parseCommand command = do
-  let
-    initialTokens = Regex.split spacesRegex $ String.trim command
-    result = initialTokens # flip Array.foldl { previousToken: Nothing, tokens: [] } \acc token ->
-      case acc.previousToken of
-        Nothing ->
-          acc { previousToken = Just token }
-        Just prevTok
-          -- Allow spaces to be escaped by a backslash if not meant as a delimiter
-          | Just tokNoSlash <- String.stripSuffix (String.Pattern "\\") prevTok ->
-              acc { previousToken = Just $ tokNoSlash <> " " <> token }
-          | otherwise ->
-              { previousToken: Just token, tokens: acc.tokens `Array.snoc` prevTok }
-    tokens = maybe result.tokens (Array.snoc result.tokens) result.previousToken
-  case Array.uncons tokens of
-    Just { head, tail } -> Just { file: head, args: tail }
-    _ -> Nothing
-
 joinCommand :: String -> Array String -> String
 joinCommand file args = file <> " " <> Array.intercalate " " args
 
@@ -735,10 +716,6 @@ noEscapeRegex = unsafeRegex """^[\w.-]+$""" noFlags
 -- | `/"/g`
 doubleQuotesregex ∷ Regex
 doubleQuotesregex = unsafeRegex "\"" global
-
--- | `/ +/g`
-spacesRegex ∷ Regex
-spacesRegex = unsafeRegex " +" global
 
 spawnedKill
   :: EffectFn3

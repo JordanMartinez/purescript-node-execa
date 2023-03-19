@@ -2,11 +2,14 @@ module Test.Node.Library.Execa where
 
 import Prelude
 
+import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Data.String as String
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
+import Node.Library.Execa.ParseCommand (parseCommand')
 import Node.Library.Execa.Utils (utf8)
 import Node.Library.HumanSignals (signals)
 import Test.Spec (SpecT, describe, it)
@@ -111,3 +114,29 @@ spec = do
         case result of
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message
+  describe "parseCommand" do
+    let
+      shouldBeFileArgs file args = do
+        let result = parseCommand' $ file <> " " <> Array.intercalate " " args
+        Right (String.trim file) `shouldEqual` (map _.file) result
+        Right (map String.trim args) `shouldEqual` (map _.args) result
+
+      escapeSlash = """\"""
+      escapedSpace = escapeSlash <> " "
+      dquote = "\""
+      squote = "'"
+      escSQuote = escapeSlash <> squote
+      escDQuote = escapeSlash <> dquote
+
+    it "should work despite extra spaces" do
+      shouldBeFileArgs " file  " [ "    arg1", "arg2   ", "   arg3   " ]
+
+    it "should account for escaped spaces, double-quotes, and single-quotes" do
+      shouldBeFileArgs "file" [ "partA" <> escapedSpace <> escDQuote <> escSQuote <> "partB" ]
+
+    it "should account for escaped double-quotes within double-quote context" do
+      shouldBeFileArgs "file" [ dquote <> "partA" <> escDQuote <> "partB" <> dquote ]
+
+    it "should account for escaped single-quotes within single-quote context" do
+      shouldBeFileArgs "file" [ squote <> "partA" <> escSQuote <> "partB" <> squote ]
+
