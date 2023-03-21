@@ -6,15 +6,16 @@ module Node.Library.Execa.ParseCommand
 import Prelude
 
 import Data.Array.NonEmpty as NEA
-import Data.Either (Either(..), hush)
+import Data.Either (Either, hush)
 import Data.Foldable (oneOf)
 import Data.Maybe (Maybe(..), optional)
+import Data.String.CodeUnits as SCU
 import Data.String.NonEmpty as NES
 import Data.String.NonEmpty.Internal (NonEmptyString(..))
 import Data.Tuple (Tuple(..))
 import Parsing (ParseError, fail, runParser)
 import Parsing.Combinators.Array (many, many1)
-import Parsing.String (anyTill, eof, string)
+import Parsing.String (anyChar, anyTill, eof, string)
 import Parsing.String.Basic (skipSpaces)
 import Safe.Coerce (coerce)
 
@@ -32,13 +33,10 @@ parseCommand' = dropNES <<< parseCommand''
 parseCommand'' :: String -> Either ParseError { file :: NonEmptyString, args :: Array NonEmptyString }
 parseCommand'' command = runParser command parseFileArgs
   where
-  escapeSlash = """\"""
+  backslash = """\"""
   squote = "'"
   dquote = "\""
   space = " "
-  escSpace = escapeSlash <> " "
-  escSQuote = escapeSlash <> squote
-  escDQuote = escapeSlash <> dquote
 
   parseFileArgs = do
     skipSpaces
@@ -55,13 +53,11 @@ parseCommand'' command = runParser command parseFileArgs
       Nothing ->
         parseArgEnd ""
       Just quoteStr ->
-        parseArgPart quoteStr quoteStr
+        parseArgPart quoteStr ""
 
   parseArgEnd acc = do
     Tuple parsed (Tuple wasEscapedChar str) <- anyTill $ oneOf
-      [ Tuple true <$> string escSpace
-      , Tuple true <$> string escDQuote
-      , Tuple true <$> string escSQuote
+      [ Tuple true <<< SCU.singleton <$> (string backslash *> anyChar)
       , Tuple false <<< NEA.fold1 <$> (many1 $ string space)
       , Tuple false "" <$ eof
       ]
@@ -71,18 +67,19 @@ parseCommand'' command = runParser command parseFileArgs
       Just x -> pure x
       Nothing -> fail "Arg was empty"
 
-  parseArgPart :: NonEmptyString -> NonEmptyString -> _
+  parseArgPart :: NonEmptyString -> String -> _
   parseArgPart quoteStr acc = do
-    Tuple parsed next <- anyTill $ oneOf
-      [ Left <<< NonEmptyString <$> string (escapeSlash <> NES.toString quoteStr)
-      , Right <<< NonEmptyString <$> string (NES.toString quoteStr)
+    Tuple parsed escapedQuote <- anyTill $ oneOf
+      [ true <$ string (backslash <> NES.toString quoteStr)
+      , false <$ string (NES.toString quoteStr)
       ]
-    case next of
-      Left escapedQuote ->
-        parseArgPart quoteStr (acc <> NES.prependString parsed escapedQuote)
-      Right terminatingQuote -> do
-        skipSpaces
-        pure $ acc <> NES.prependString parsed terminatingQuote
+    if escapedQuote then do
+      parseArgPart quoteStr (acc <> parsed <> NES.toString quoteStr)
+    else do
+      skipSpaces
+      case NES.fromString $ acc <> parsed of
+        Just ns -> pure ns
+        Nothing -> fail "Arg was empty"
 
 data QuoteType
   = DoubleQuote
