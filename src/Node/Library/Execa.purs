@@ -412,7 +412,7 @@ execa file args buildOptions = do
 
   runFiber <- forkAff $ joinFiber processDoneFiber
   stdoutFiber <- mkStdIoFiber (stdout spawned)
-  stderrFiber <- mkStdIoFiber (stdout spawned)
+  stderrFiber <- mkStdIoFiber (stderr spawned)
 
   let
     getSpawnResult = do
