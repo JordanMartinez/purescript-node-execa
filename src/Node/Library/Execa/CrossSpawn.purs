@@ -15,6 +15,7 @@ import Data.Array as Array
 import Data.Array.NonEmpty as NEA
 import Data.Either (either)
 import Data.Foldable (for_)
+import Data.FoldableWithIndex (forWithIndex_)
 import Data.Function (applyN)
 import Data.Maybe (Maybe(..), fromMaybe, isJust)
 import Data.String (toLower)
@@ -25,6 +26,7 @@ import Data.String.Regex.Unsafe (unsafeRegex)
 import Data.Traversable (for)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
+import Effect.Console (log)
 import Effect.Exception (try)
 import Foreign.Object (Object)
 import Foreign.Object as Object
@@ -33,6 +35,7 @@ import Node.Encoding (Encoding(..))
 import Node.FS (FileFlags(..))
 import Node.FS.Sync as FS
 import Node.Library.Execa.ShebangCommand (shebangCommand)
+import Node.Library.Execa.Utils (bracketEffect)
 import Node.Library.Execa.Which (defaultWhichOptions)
 import Node.Library.Execa.Which as Which
 import Node.Path (FilePath, normalize)
@@ -40,7 +43,6 @@ import Node.Path as Path
 import Node.Platform (Platform(..))
 import Node.Process (lookupEnv, platform)
 import Node.Process as Process
-import Node.Library.Execa.Utils (bracketEffect)
 
 isWindows :: Boolean
 isWindows = platform == Just Win32
@@ -155,6 +157,8 @@ parse command args options = do
     env <- case parseRec.options.env of
       Nothing -> Process.getEnv
       Just a -> pure a
+    forWithIndex_ env \key value ->
+      log $ key <> ": " <> value
     resolved <- withOptionsCwdIfNeeded parseRec.options.cwd \_ -> do
       map join $ for (Object.lookup "PATH" env) \envPath -> do
         let getFirst = either (const Nothing) (Just <<< NEA.head)
