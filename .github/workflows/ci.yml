@@ -38,6 +38,14 @@ jobs:
         uses: actions/setup-node@v2
         with:
           node-version: "16"
+      
+      - name: Finding spago on Windows
+        if: runner.os == 'Windows'
+        run: |
+          spago version
+          spago.exe version
+          spago.cmd version
+          which spago
 
       # Compile the library/project
       #   censor-lib: ignore warnings emitted by dependencies
