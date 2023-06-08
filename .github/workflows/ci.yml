@@ -40,6 +40,11 @@ jobs:
         run:
           npm i -g purescript@latest purs-tidy@latest purescript-psa@latest spago@latest
 
+      - name: Find spago binary
+        if: runner.os == 'Windows'
+        run: |
+          where.exe spago
+
       - name: Cache PureScript dependencies
         uses: actions/cache@v3
         with:
