@@ -7,7 +7,6 @@ import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Tuple (fst, snd)
 import Data.Tuple.Nested ((/\))
-import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.Execa.ParseCommand (parseCommand')
@@ -15,11 +14,11 @@ import Node.Library.Execa.Utils (utf8)
 import Node.Library.HumanSignals (signals)
 import Node.Platform (Platform(..))
 import Node.Process (platform)
-import Test.Spec (SpecT, describe, it)
+import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Spec.Assertions.String (shouldContain)
 
-spec :: SpecT Aff Unit Aff Unit
+spec :: Spec Unit
 spec = do
   describe "execa" do
     it "`echo test` should fail due to a Node.js bug" do
