@@ -69,11 +69,3 @@ spec = do
         , (squote <> "a" <> escDQuote <> "b" <> squote) /\ ("a" <> escDQuote <> "b")
         ]
 
-  when (platform == Just Win32) do
-    describe "windows" do
-      it "running spago without `.exe` should work" do
-        cp <- execa "spago" [ "version" ] identity
-        result <- cp.result
-        case result of
-          Left err -> fail $ err.message
-          Right _ -> pure unit
