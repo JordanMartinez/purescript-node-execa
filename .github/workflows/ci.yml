@@ -43,6 +43,7 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           where.exe spago
+          ls -Path C:\hostedtoolcache\windows\spago\0.20.9\x64 -Recurse -Force 
 
       # Compile the library/project
       #   censor-lib: ignore warnings emitted by dependencies
