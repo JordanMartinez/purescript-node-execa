@@ -19,12 +19,15 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - uses: purescript-contrib/setup-purescript@main
+      - name: Set up Node toolchain
+        uses: actions/setup-node@v2
         with:
-          purescript: "0.15.7"
-          purs-tidy: "0.9.2"
-          psa: "0.8.2"
-          spago: "0.20.9"
+          node-version: "16"
+      
+      
+      - name: Setup PureScript tools
+        run: |
+          npm i -g purescript@0.15.7 spago@0.20.9 purs-tidy@0.9.2 purescript-psa@0.8.2
 
       - name: Cache PureScript dependencies
         uses: actions/cache@v2
@@ -34,28 +37,17 @@ jobs:
             .spago
             output
 
-      - name: Set up Node toolchain
-        uses: actions/setup-node@v2
-        with:
-          node-version: "16"
-      
-      - name: Finding spago on Windows
-        if: runner.os == 'Windows'
-        run: |
-          where.exe spago
-          ls -Path C:\hostedtoolcache\windows\spago\0.20.9\x64 -Recurse -Force 
-
       # Compile the library/project
       #   censor-lib: ignore warnings emitted by dependencies
       #   strict: convert warnings into errors
       # Note: `purs-args` actually forwards these args to `psa`
       - name: Build the project
         run: |
-          node ci.mjs build
+          spago build --purs-args "--censor-lib strict"
 
       - name: Run tests
         run: |
-          node ci.mjs test
+          spago -x test.dhall test
 
       - name: Check Formatting
         if: runner.os == 'Linux'
