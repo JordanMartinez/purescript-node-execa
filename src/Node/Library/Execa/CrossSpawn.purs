@@ -106,7 +106,7 @@ parse command args options = do
         -- Because the escape of metachars with ^ gets interpreted when the cmd.exe is first called,
         -- we need to double escape them
         let needsDoubleEscapeChars = test isCommandShimRegex commandFile
-        comSpec <- fromMaybe "cmd.exe" <$> lookupEnv "comspec"
+        comSpec <- fromMaybe "cmd.exe" <$> lookupEnv "ComSpec"
         pure $ rec1
           { args =
               -- PureScript note: This fix is done in `execa` since
@@ -160,7 +160,7 @@ parse command args options = do
     forWithIndex_ env \key value ->
       log $ key <> ": " <> value
     resolved <- withOptionsCwdIfNeeded parseRec.options.cwd \_ -> do
-      map join $ for (Object.lookup "PATH" env) \envPath -> do
+      map join $ for (Object.lookup "Path" env) \envPath -> do
         let getFirst = either (const Nothing) (Just <<< NEA.head)
         attempt1 <- map getFirst $ Which.whichSync command $ defaultWhichOptions { path = Just envPath, pathExt = Just Path.delimiter }
         if isJust attempt1 then do
