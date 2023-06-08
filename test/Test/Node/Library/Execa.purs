@@ -8,24 +8,11 @@ import Effect.Class (liftEffect)
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.Execa.Utils (utf8)
 import Node.Library.HumanSignals (signals)
-import Node.Platform (Platform(..))
-import Node.Process as Process
-import Test.Spec (class Example, Spec, SpecT, describe, it)
+import Node.Path as Path
+import Test.Node.Library.Utils (isWindows, itNix)
+import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Spec.Assertions.String (shouldContain)
-
-isWindows :: Boolean
-isWindows = Process.platform == Just Win32
-
-itWindows :: forall m t arg g. Monad m => Example t arg g => String -> t -> SpecT g arg m Unit
-itWindows msg test = do
-  when isWindows do
-    it (msg <> " (windows only)") test
-
-itNix :: forall m t arg g. Monad m => Example t arg g => String -> t -> SpecT g arg m Unit
-itNix msg test = do
-  unless isWindows do
-    it (msg <> " (*nix only)") test
 
 spec :: Spec Unit
 spec = describe "execa" do
@@ -50,48 +37,45 @@ spec = describe "execa" do
       case result of
         Right r -> r.stdout `shouldEqual` "test"
         Left e -> fail e.message
-  describe "kill works" do
-    itNix "basic cancel produces error" do
-      spawned <- execa "bash" [ "test/fixtures/sleep.sh", "1" ] identity
-      spawned.cancel
-      result <- spawned.result
-      case result of
-        Right _ -> fail "Cancelling should work"
-        Left e -> e.isCanceled `shouldEqual` true
-    itWindows "basic cancel produces error" do
-      spawned <- execa "test/fixtures/sleep.cmd" [ "1" ] identity
-      spawned.cancel
-      result <- spawned.result
-      case result of
-        Right _ -> fail "Cancelling should work"
-        Left e -> e.isCanceled `shouldEqual` true
-    itNix "basic kill (string) produces error" do
-      spawned <- execa "test/fixtures/sleep.cmd" [ "1" ] identity
-      _ <- spawned.killWithSignal (Right "SIGTERM")
-      result <- spawned.result
-      case result of
-        Right _ -> fail "Cancelling should work"
-        Left e -> e.signal `shouldEqual` (Just $ Right "SIGTERM")
-    itNix "basic kill (int) produces error" do
-      spawned <- execa "test/fixtures/sleep.cmd" [ "1" ] identity
-      _ <- spawned.killWithSignal (Left signals.byName."SIGTERM".number)
-      result <- spawned.result
-      case result of
-        Right _ -> fail "Cancelling should work"
-        Left e -> case e.signal of
-          Just (Left i) -> i `shouldEqual` signals.byName."SIGTERM".number
-          Just (Right s) -> s `shouldEqual` signals.byName."SIGTERM".name
-          _ -> fail "Did not get a kill signal"
-  describe "timeout produces error" do
-    itNix "basic timeout produces error" do
-      spawned <- execa "test/fixtures/sleep.cmd" [ "10" ]
-        (_ { timeout = Just { milliseconds: 400.0, killSignal: Right "SIGTERM" } })
-      result <- spawned.result
-      case result of
-        Right _ -> fail "Timeout should work"
-        Left e -> do
-          e.signal `shouldEqual` (Just $ Right "SIGTERM")
-          e.timedOut `shouldEqual` true
+  describe "using sleep files" do
+    let
+      shellCmd = if isWindows then "pwsh" else "sh"
+      sleepFile = Path.concat [ "test", "fixtures", "sleep." <> if isWindows then "cmd" else "sh" ]
+    describe "kill works" do
+      it "basic cancel produces error" do
+        spawned <- execa shellCmd [ sleepFile, "1" ] identity
+        spawned.cancel
+        result <- spawned.result
+        case result of
+          Right _ -> fail "Cancelling should work"
+          Left e -> e.isCanceled `shouldEqual` true
+      it "basic kill (string) produces error" do
+        spawned <- execa shellCmd [ sleepFile, "1" ] identity
+        _ <- spawned.killWithSignal (Right "SIGTERM")
+        result <- spawned.result
+        case result of
+          Right _ -> fail "Cancelling should work"
+          Left e -> e.signal `shouldEqual` (Just $ Right "SIGTERM")
+      it "basic kill (int) produces error" do
+        spawned <- execa shellCmd [ sleepFile, "1" ] identity
+        _ <- spawned.killWithSignal (Left signals.byName."SIGTERM".number)
+        result <- spawned.result
+        case result of
+          Right _ -> fail "Cancelling should work"
+          Left e -> case e.signal of
+            Just (Left i) -> i `shouldEqual` signals.byName."SIGTERM".number
+            Just (Right s) -> s `shouldEqual` signals.byName."SIGTERM".name
+            _ -> fail "Did not get a kill signal"
+    describe "timeout produces error" do
+      it "basic timeout produces error" do
+        spawned <- execa shellCmd [ sleepFile, "10" ]
+          (_ { timeout = Just { milliseconds: 400.0, killSignal: Right "SIGTERM" } })
+        result <- spawned.result
+        case result of
+          Right _ -> fail "Timeout should work"
+          Left e -> do
+            e.signal `shouldEqual` (Just $ Right "SIGTERM")
+            e.timedOut `shouldEqual` true
   describe "execaSync" do
     describe "`cat` tests" do
       it "input is file" do
