@@ -2,6 +2,6 @@
 
 TIMEOUT_SECONDS=$1
 
-sleep "${TIMEOUT_SECONDS}s"
+sleep "${TIMEOUT_SECONDS}"
 
 echo "Finish"
