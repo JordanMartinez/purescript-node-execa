@@ -43,7 +43,6 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           spago version
-          spago.exe version
           spago.cmd version
           which spago
 
