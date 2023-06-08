@@ -58,7 +58,7 @@ jobs:
 
       - name: Run tests
         run: |
-          npx spago test
+          npx spago -x test.dhall test
 
       - name: Check Formatting
         if: runner.os == 'Linux'
