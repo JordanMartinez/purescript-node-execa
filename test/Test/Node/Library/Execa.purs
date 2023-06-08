@@ -13,6 +13,8 @@ import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.Execa.ParseCommand (parseCommand')
 import Node.Library.Execa.Utils (utf8)
 import Node.Library.HumanSignals (signals)
+import Node.Platform (Platform(..))
+import Node.Process (platform)
 import Test.Spec (SpecT, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Spec.Assertions.String (shouldContain)
@@ -168,3 +170,11 @@ spec = do
         , (squote <> "a" <> escDQuote <> "b" <> squote) /\ ("a" <> escDQuote <> "b")
         ]
 
+  when (platform == Just Win32) do
+    describe "windows" do
+      it "running spago without `.exe` should work" do
+        cp <- execa "spago" [ "version" ] identity
+        result <- cp.result
+        case result of
+          Left err -> fail $ err.message
+          Right _ -> pure unit
