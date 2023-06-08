@@ -13,6 +13,7 @@ import Data.Maybe (Maybe(..), fromMaybe)
 import Effect (Effect)
 import Foreign.Object (Object)
 import Foreign.Object as Object
+import Node.Library.Execa.Utils (envKey)
 import Node.Path as Path
 import Node.Process as Process
 
@@ -33,7 +34,7 @@ defaultNpmRunPathOptions = mempty
 npmRunPath :: NpmRunPathOptions -> Effect String
 npmRunPath initialOptions = do
   processCwd <- Process.cwd
-  processPath <- Process.lookupEnv "PATH"
+  processPath <- envKey "PATH"
   processExecPath <- Process.execPath
   let
     options =

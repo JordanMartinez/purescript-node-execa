@@ -33,13 +33,13 @@ import Node.Encoding (Encoding(..))
 import Node.FS (FileFlags(..))
 import Node.FS.Sync as FS
 import Node.Library.Execa.ShebangCommand (shebangCommand)
-import Node.Library.Execa.Utils (bracketEffect)
+import Node.Library.Execa.Utils (bracketEffect, envKey)
 import Node.Library.Execa.Which (defaultWhichOptions)
 import Node.Library.Execa.Which as Which
 import Node.Path (normalize)
 import Node.Path as Path
 import Node.Platform (Platform(..))
-import Node.Process (lookupEnv, platform)
+import Node.Process (platform)
 import Node.Process as Process
 
 isWindows :: Boolean
@@ -97,7 +97,7 @@ parse command args options = do
         -- Because the escape of metachars with ^ gets interpreted when the cmd.exe is first called,
         -- we need to double escape them
         let needsDoubleEscapeChars = test isCommandShimRegex commandFile
-        comSpec <- fromMaybe "cmd.exe" <$> lookupEnv "ComSpec"
+        comSpec <- fromMaybe "cmd.exe" <$> envKey "COMSPEC"
         pure $ rec1
           { args =
               -- PureScript note: This fix is done in `execa` since

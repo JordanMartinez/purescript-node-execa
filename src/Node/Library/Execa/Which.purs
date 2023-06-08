@@ -23,20 +23,18 @@ import Data.Tuple (Tuple(..))
 import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Class (liftEffect)
-import Foreign.Object as Object
 import Node.Library.Execa.IsExe (defaultIsExeOptions, isExe, isExeSync)
+import Node.Library.Execa.Utils (CustomError, buildCustomError, envKey)
 import Node.Path as Path
 import Node.Platform (Platform(..))
 import Node.Process (platform)
 import Node.Process as Process
-import Node.Library.Execa.Utils (CustomError, buildCustomError)
 import Partial.Unsafe (unsafePartial)
 
 isWindows :: Effect Boolean
 isWindows = do
-  env <- Process.getEnv
-  let osTypeIs x = Just x == Object.lookup "OSTYPE" env
-  pure $ platform == Just Win32 || osTypeIs "cygwin" || osTypeIs "msys"
+  ty <- envKey "OSTYPE"
+  pure $ platform == Just Win32 || ty == Just "cygwin" || ty == Just "msys"
 
 jsColon :: Effect String
 jsColon = do
@@ -72,8 +70,8 @@ getPathInfo cmd options = do
   -- PureScript implementation note: get all the effectful stuff first
   -- before we use it in the rest of this function for readability.
   cwd <- Process.cwd
-  mbPath <- Process.lookupEnv "PATH"
-  mbPathExt <- Process.lookupEnv "PATHEXT"
+  mbPath <- envKey "PATH"
+  mbPathExt <- envKey "PATHEXT"
   isWin <- isWindows
 
   colon <- case options.colon of

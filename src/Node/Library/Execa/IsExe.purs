@@ -28,8 +28,9 @@ import Effect.Uncurried (EffectFn2, runEffectFn2)
 import Node.FS.Async as FsAsync
 import Node.FS.Stats (Stats(..), isFile, isSymbolicLink)
 import Node.FS.Sync as FsSync
+import Node.Library.Execa.Utils (envKey)
 import Node.Platform (Platform(..))
-import Node.Process (lookupEnv, platform)
+import Node.Process (platform)
 import Unsafe.Coerce (unsafeCoerce)
 
 type IsExeOptions =
@@ -98,7 +99,7 @@ coreWindows =
 
   checkPathExt :: String -> IsExeOptions -> Effect Boolean
   checkPathExt path options = do
-    mbPathExt <- lookupEnv "PATHEXT"
+    mbPathExt <- envKey "PATHEXT"
     case options.pathExt <|> mbPathExt of
       Nothing -> pure true
       Just p -> do
