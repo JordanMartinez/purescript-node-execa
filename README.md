@@ -21,9 +21,10 @@ PureScript port of the [`execa`](https://github.com/sindresorhus/execa) ([NPM li
 - [`signal-exit`](https://github.com/tapjs/signal-exit) - ISC
 - [`strip-final-newline`](https://github.com/sindresorhus/strip-final-newline) - MIT
 - [`which`](https://github.com/npm/node-which) - ISC
+- [`path-key`](https://github.com/sindresorhus/path-key) - MIT
+  - Note: personal experience indicates that Windows still uses case-sensitive keys for its environment. So ignore [path-key#8](https://github.com/sindresorhus/path-key/issues/8). This library's functionality was implemented via `envKey` so that other case-sensitivity issues do not arise on Windows. 
 
 The below dependencies of `execa` did not need to be ported since such functionality was implemented primarily via `Aff`.
 - `mimic-fn` - functionality unneeded as `Aff` `Fiber`s are a more flexible implementation than `Promise`s.
 - `onetime` - functionality provided via `Aff`'s `joinFiber`
 - `is-stream` - functionality provided via PureScript's types
-- `path-key` - functionality is no longer needed in current versions of Node

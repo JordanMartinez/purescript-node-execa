@@ -1,14 +1,28 @@
+-- A majority of the below code was ported from this JavaScript library
+-- Note: the implementation of `envKey` was
+-- based on https://github.com/sindresorhus/path-key
+-- Copyright `sindresorhus`
+-- MIT License: https://opensource.org/license/mit/
+
 module Node.Library.Execa.Utils where
 
 import Prelude
 
+import Control.Alternative (guard)
+import Data.FoldableWithIndex (findMapWithIndex)
 import Data.Function.Uncurried (Fn2, runFn2)
+import Data.Maybe (Maybe(..))
+import Data.String as String
 import Data.Symbol (class IsSymbol)
 import Effect (Effect)
 import Effect.Exception (Error)
+import Foreign.Object (Object)
+import Foreign.Object as Object
 import Node.Buffer.Immutable (ImmutableBuffer)
 import Node.Buffer.Immutable as ImmutableBuffer
 import Node.Encoding (Encoding(..))
+import Node.Platform (Platform(..))
+import Node.Process as Process
 import Node.Stream (Duplex)
 import Prim.Row as Row
 import Record as Record
@@ -57,5 +71,14 @@ bracketEffect open close use = do
   resource <- open
   b <- use resource
   b <$ close resource
+
+envKey :: String -> Effect (Maybe String)
+envKey key = flip envKey' key <$> Process.getEnv
+
+envKey' :: Object String -> String -> Maybe String
+envKey' env key
+  | Process.platform == Just Win32 =
+      findMapWithIndex (\k v -> v <$ guard (String.toUpper k == String.toUpper key)) env
+  | otherwise = Object.lookup key env
 
 foreign import newPassThroughStream :: Effect Duplex
