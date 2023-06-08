@@ -4,6 +4,8 @@ import process from "process";
 const args = process.argv.slice(2);
 console.log(`Script CLI args: ${args}`);
 
+console.log(process.env["PATH"]);
+
 if (args[0] === "build") {
   const result = cp.spawnSync("spago", ["build", "--purs-args", "--censor-lib --strict"], { stdio: "inherit"});
   console.log(result);
