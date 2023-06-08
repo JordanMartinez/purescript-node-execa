@@ -12,6 +12,8 @@ import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.Execa.ParseCommand (parseCommand')
 import Node.Library.Execa.Utils (utf8)
 import Node.Library.HumanSignals (signals)
+import Node.Platform (Platform(..))
+import Node.Process as Process
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
 import Test.Spec.Assertions.String (shouldContain)
@@ -19,6 +21,14 @@ import Test.Spec.Assertions.String (shouldContain)
 spec :: Spec Unit
 spec = do
   describe "execa" do
+    if (Process.platform /= Just Win32) then do
+      nixTests
+    else
+      windowsTests
+
+nixTests :: Spec Unit
+nixTests = do
+  describe "*nix" do
     it "`echo test` should fail due to a Node.js bug" do
       spawned <- execa "echo" [] identity
       spawned.stdin.writeUtf8End "test"
@@ -167,3 +177,7 @@ spec = do
         , (squote <> "a" <> escDQuote <> "b" <> squote) /\ ("a" <> escDQuote <> "b")
         ]
 
+windowsTests :: Spec Unit
+windowsTests = do
+  describe "windows" do
+    pure unit
