@@ -33,14 +33,14 @@ import Node.Encoding (Encoding(..))
 import Node.FS (FileFlags(..))
 import Node.FS.Sync as FS
 import Node.Library.Execa.ShebangCommand (shebangCommand)
+import Node.Library.Execa.Utils (bracketEffect)
 import Node.Library.Execa.Which (defaultWhichOptions)
 import Node.Library.Execa.Which as Which
-import Node.Path (FilePath, normalize)
+import Node.Path (normalize)
 import Node.Path as Path
 import Node.Platform (Platform(..))
 import Node.Process (lookupEnv, platform)
 import Node.Process as Process
-import Node.Library.Execa.Utils (bracketEffect)
 
 isWindows :: Boolean
 isWindows = platform == Just Win32
@@ -65,8 +65,6 @@ type CrossSpawnConfig =
   { command :: String
   , args :: Array String
   , options :: CrossSpawnOptions
-  , file :: Maybe FilePath
-  , original :: { command :: String, args :: Array String }
   }
 
 parse :: String -> Array String -> CrossSpawnOptions -> Effect CrossSpawnConfig
@@ -80,11 +78,6 @@ parse command args options = do
     { command
     , args
     , options
-    , file: Nothing
-    , original:
-        { command
-        , args
-        }
     }
   parseWindows
     | isJust options.shell = pure initParseRec
@@ -135,16 +128,15 @@ parse command args options = do
   detectShebang parseRec = do
     mbFile <- resolveCommand parseRec
     case mbFile of
-      Nothing -> pure $ Tuple (parseRec { file = mbFile }) mbFile
+      Nothing -> pure $ Tuple parseRec mbFile
       Just file -> do
         mbShebang <- readShebang file
         case mbShebang of
-          Nothing -> pure $ Tuple (parseRec { file = mbFile }) mbFile
+          Nothing -> pure $ Tuple parseRec mbFile
           Just shebang -> do
             let
               rec1 = parseRec
-                { file = mbFile
-                , args = Array.cons file parseRec.args
+                { args = Array.cons file parseRec.args
                 , command = shebang
                 }
             newCommand <- resolveCommand rec1

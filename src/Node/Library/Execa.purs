@@ -446,7 +446,7 @@ execa file args buildOptions = do
           , stderr: result.stderr.text
           , command
           , escapedCommand
-          , parsed
+          , execaOptions: parsed.options
           , timedOut: is _TimedOut someError
           , isCanceled
           , killed: killed'
@@ -638,7 +638,7 @@ execaSync file args buildOptions = do
       , error: resultError
       , signal: resultSignal
       , exitCode: toMaybe result.status
-      , parsed
+      , execaOptions: parsed.options
       , timedOut: Just "ETIMEDOUT" == (map _.code resultError)
       , isCanceled: false
       , killed: isJust resultSignal
@@ -807,7 +807,7 @@ mkError
      , exitCode :: Maybe Int
      , command :: String
      , escapedCommand :: String
-     , parsed :: { file :: String, args :: Array String, options :: ExecaRunOptions, parsed :: CrossSpawnConfig }
+     , execaOptions :: ExecaRunOptions
      , timedOut :: Boolean
      , isCanceled :: Boolean
      , killed :: Boolean
@@ -835,7 +835,7 @@ mkError r =
   errorCode = map _.code r.error
   prefix
     | r.timedOut
-    , Just timeout <- r.parsed.options.timeout =
+    , Just timeout <- r.execaOptions.timeout =
         "timed out after " <> show timeout <> "milliseconds"
     | r.isCanceled =
         "was canceled"
