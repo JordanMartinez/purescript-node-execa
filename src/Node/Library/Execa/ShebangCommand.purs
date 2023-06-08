@@ -17,23 +17,24 @@ import Data.String.Regex.Unsafe (unsafeRegex)
 
 shebangCommand :: String -> Maybe String
 shebangCommand firstLineOfFile = do
-  parts <- match shebangRegex firstLineOfFile
-  let
-    extractBinary = Array.last <<< String.split (String.Pattern "/")
+  regexMatch <- match shebangRegex firstLineOfFile
+  everythingAfterShebang <- join $ Array.index (NEA.toArray regexMatch) 1
+  let parts = String.split (String.Pattern " ") everythingAfterShebang
 
-  everythingAfterShebang <- NEA.head parts
-  case String.split (String.Pattern " ") everythingAfterShebang of
-    [ pathOnly ] -> do
+  case Array.uncons parts of
+    Just { head: pathOnly, tail: [] } -> do
       binary <- extractBinary pathOnly
       binary <$ guard (binary /= "env")
-    [ path, argument ] -> do
+    Just { head: path, tail: args } -> do
       binary <- extractBinary path
       pure
         if binary == "env" then
-          argument
+          Array.intercalate " " args
         else
-          binary <> " " <> argument
+          Array.intercalate " " $ Array.cons binary args
     _ -> Nothing
   where
+  extractBinary = Array.last <<< String.split (String.Pattern "/")
+
   shebangRegex :: Regex
   shebangRegex = unsafeRegex """^#! ?(.*)""" noFlags
