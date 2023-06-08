@@ -11,7 +11,10 @@ on:
 # Run CI on all 3 latest OSes
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v2
@@ -42,12 +45,13 @@ jobs:
       # Note: `purs-args` actually forwards these args to `psa`
       - name: Build the project
         run: |
-          spago build --purs-args "--censor-lib --strict"
+          npx spago build --purs-args "--censor-lib --strict"
 
       - name: Run tests
         run: |
-          spago -x test.dhall test
+          npx spago -x test.dhall test
 
       - name: Check Formatting
+        if: runner.os == 'Linux'
         run: |
           purs-tidy check src test
