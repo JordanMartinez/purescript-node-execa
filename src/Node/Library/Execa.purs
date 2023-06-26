@@ -8,6 +8,14 @@ module Node.Library.Execa
   , ExecaOptions
   , ExecaProcess
   , ExecaSuccess
+  , ExecaChildProcess
+  , closeH
+  , disconnectH
+  , errorH
+  , exitH
+  , messageH
+  , spawnH
+  , KillSignal
   , execa
   , ExecaSyncOptions
   , ExecaSyncResult
@@ -56,6 +64,8 @@ import Node.Buffer.Immutable (ImmutableBuffer)
 import Node.Buffer.Immutable as ImmutableBuffer
 import Node.Buffer.Internal as Buffer
 import Node.Encoding (Encoding(..))
+import Node.EventEmitter (EventHandle(..), once_)
+import Node.EventEmitter.UtilTypes (EventHandle1, EventHandle0)
 import Node.Library.Execa.CrossSpawn (CrossSpawnConfig)
 import Node.Library.Execa.CrossSpawn as CrossSpawn
 import Node.Library.Execa.GetStream (getStreamBuffer)
@@ -261,11 +271,7 @@ type ExecaProcess =
   , killForcedWithSignal :: Either Int String -> Milliseconds -> Aff Boolean
   , killWithSignal :: Either Int String -> Aff Boolean
   , killed :: Aff Boolean
-  , onClose :: (Maybe Int -> Maybe String -> Effect Unit) -> Aff Unit
-  , onDisconnect :: Effect Unit -> Aff Unit
-  , onError :: (ChildProcessError -> Effect Unit) -> Aff Unit
-  , onMessage :: (Foreign -> Maybe Handle -> Effect Unit) -> Aff Unit
-  , onSpawn :: Effect Unit -> Aff Unit
+  , childProcess :: ExecaChildProcess
   , pid :: Aff (Maybe Pid)
   , pidExists :: Aff Boolean
   , ref :: Aff Unit
@@ -303,6 +309,34 @@ type ExecaSuccess =
   , stdout :: String
   }
 
+newtype ExecaChildProcess = ExecaChildProcess ChildProcess
+
+closeH :: EventHandle ExecaChildProcess (Either Int String -> Effect Unit) (EffectFn2 (Nullable Int) (Nullable String) Unit)
+closeH = EventHandle "close" \cb -> mkEffectFn2 \code sig -> do
+  case toMaybe code, toMaybe sig of
+    Just c, _ -> cb $ Left c
+    _, Just s -> cb $ Right s
+    _, _ -> unsafeCrashWith $ "Impossible. Got both an exit code and error signal. Code=" <> show code <> "; Signal=" <> show sig
+
+disconnectH :: EventHandle0 ExecaChildProcess
+disconnectH = EventHandle "disconnect" identity
+
+errorH :: EventHandle1 ExecaChildProcess ChildProcessError
+errorH = EventHandle "error" mkEffectFn1
+
+exitH :: EventHandle ExecaChildProcess (Either Int (Either Int String) -> Effect Unit) (EffectFn2 (Nullable Int) (Nullable KillSignal) Unit)
+exitH = EventHandle "exit" \cb -> mkEffectFn2 \code sig -> do
+  case toMaybe code, map fromKillSignal $ toMaybe sig of
+    Just c, _ -> cb $ Left c
+    _, Just s -> cb $ Right s
+    _, _ -> unsafeCrashWith $ "Impossible. Got neither or both an exit code and error signal. Code=" <> show code <> "; Signal=" <> (unsafeCoerce sig :: String)
+
+messageH :: EventHandle ExecaChildProcess (Foreign -> Maybe Handle -> Effect Unit) (EffectFn2 Foreign (Nullable Handle) Unit)
+messageH = EventHandle "message" \cb -> mkEffectFn2 \a b -> cb a (toMaybe b)
+
+spawnH :: EventHandle0 ExecaChildProcess
+spawnH = EventHandle "spawn" identity
+
 -- | Replacement for `childProcess.spawn`. Since this is asynchronous,
 -- | the returned value will not provide any results until one calls `spawned.result`:
 -- | `execa ... >>= \spawned -> spawned.result`. 
@@ -339,13 +373,11 @@ execa file args buildOptions = do
     , windowsHide: options.windowsHide
     }
   spawnedFiber <- suspendAff $ makeAff \cb -> do
-    onExit spawned \e s -> do
-      case e, s of
-        Just i, _ -> cb $ Right $ ExitCode i
-        _, Just sig -> cb $ Right $ Killed $ fromKillSignal sig
-        _, _ -> unsafeCrashWith "Impossible: either exit code or signal code must be non-null"
+    (ExecaChildProcess spawned) # once_ exitH case _ of
+      Left i -> cb $ Right $ ExitCode i
+      Right sig -> cb $ Right $ Killed sig
 
-    onError spawned \error -> do
+    (ExecaChildProcess spawned) # once_ errorH \error -> do
       cb $ Right $ SpawnError error
 
     Streams.onError (stdin spawned) \error -> do
@@ -474,11 +506,7 @@ execa file args buildOptions = do
     , signalCode: liftEffect $ signalCode spawned
     , spawnArgs: spawnArgs spawned
     , spawnFile: spawnFile spawned
-    , onClose: \cb -> liftEffect $ onClose spawned cb
-    , onDisconnect: \cb -> liftEffect $ onDisconnect spawned cb
-    , onError: \cb -> liftEffect $ onError spawned cb
-    , onMessage: \cb -> liftEffect $ onMessage spawned cb
-    , onSpawn: \cb -> liftEffect $ onSpawn spawned cb
+    , childProcess: ExecaChildProcess spawned
     , stdin:
         { stream: stdin spawned
         , writeUtf8: \string -> liftEffect do
@@ -1039,41 +1067,6 @@ foreign import stdout :: ChildProcess -> Readable ()
 
 -- | The standard error stream of a child process.
 foreign import stderr :: ChildProcess -> Readable ()
-
--- | Handle the `"close"` signal.
-onClose :: ChildProcess -> (Maybe Int -> Maybe String -> Effect Unit) -> Effect Unit
-onClose cp cb = runEffectFn2 onCloseImpl cp $ mkEffectFn2 \a b -> cb (toMaybe a) (toMaybe b)
-
-foreign import onCloseImpl :: EffectFn2 (ChildProcess) (EffectFn2 (Nullable Int) (Nullable String) Unit) (Unit)
-
--- | Handle the `"disconnect"` signal.
-onDisconnect :: ChildProcess -> Effect Unit -> Effect Unit
-onDisconnect cp cb = runEffectFn2 onDisconnectImpl cp cb
-
-foreign import onDisconnectImpl :: EffectFn2 (ChildProcess) (Effect Unit) (Unit)
-
--- | Handle the `"error"` signal.
-onError :: ChildProcess -> (ChildProcessError -> Effect Unit) -> Effect Unit
-onError cp cb = runEffectFn2 onErrorImpl cp $ mkEffectFn1 cb
-
-foreign import onErrorImpl :: EffectFn2 (ChildProcess) (EffectFn1 ChildProcessError Unit) (Unit)
-
-onExit :: ChildProcess -> (Maybe Int -> Maybe KillSignal -> Effect Unit) -> Effect Unit
-onExit cp cb = runEffectFn2 onExitImpl cp $ mkEffectFn2 \e s ->
-  cb (toMaybe e) (toMaybe s)
-
-foreign import onExitImpl :: EffectFn2 (ChildProcess) (EffectFn2 (Nullable Int) (Nullable KillSignal) Unit) (Unit)
-
--- | Handle the `"message"` signal.
-onMessage :: ChildProcess -> (Foreign -> Maybe Handle -> Effect Unit) -> Effect Unit
-onMessage cp cb = runEffectFn2 onMessageImpl cp $ mkEffectFn2 \a b -> cb a (toMaybe b)
-
-foreign import onMessageImpl :: EffectFn2 (ChildProcess) (EffectFn2 Foreign (Nullable Handle) Unit) (Unit)
-
-onSpawn :: ChildProcess -> Effect Unit -> Effect Unit
-onSpawn cp cb = runEffectFn2 onSpawnImpl cp cb
-
-foreign import onSpawnImpl :: EffectFn2 (ChildProcess) (Effect Unit) Unit
 
 -- | either Int or String
 foreign import data KillSignal :: Type
