@@ -93,30 +93,6 @@ export function stdout(cp) {
   return cp.stdout;
 }
 
-export function onCloseImpl(cp, cb) {
-  return cp.on("close", cb);
-}
-
-export function onDisconnectImpl(cp, cb) {
-  return cp.on("disconnect", cb);
-}
-
-export function onErrorImpl(cp, cb) {
-  return cp.on("error", cb);
-}
-
-export function onExitImpl(cp, cb) {
-  return cp.on("exit", cb);
-}
-
-export function onMessageImpl(cp, cb) {
-  return cp.on("message", cb);
-}
-
-export function onSpawnImpl(cp, cb) {
-  return cp.on("spawn", cb);
-}
-
 const _undefined = undefined;
 export { _undefined as undefined };
 
