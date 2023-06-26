@@ -13,24 +13,20 @@ import Data.Either (hush)
 import Data.Foldable (traverse_)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Monoid (guard)
-import Data.Nullable (Nullable, notNull, null, toMaybe)
+import Data.Nullable (Nullable, notNull, null, toMaybe, toNullable)
 import Data.Posix (Pid)
 import Data.Set (Set)
 import Data.Set as Set
-import Data.Symbol (reflectSymbol)
 import Data.Traversable (for)
 import Effect (Effect)
 import Effect.Exception (try)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
-import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3)
-import Node.EventEmitter (CanEmit, CanHandle, EventEmitter, unsafeEmit)
-import Node.EventEmitter.TypedEmitter (TypedEmitter, emit, subscribe, withEmit)
-import Node.EventEmitter.TypedEmitter as TypedEmitter
+import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3)
+import Node.EventEmitter (EventEmitter, EventHandle(..), on, unsafeEmitFn)
+import Node.EventEmitter as EventEmitter
 import Node.Platform (Platform(..))
 import Node.Process as Process
-import Type.Proxy (Proxy(..))
-import Unsafe.Coerce (unsafeCoerce)
 
 foreign import unsafeProcessHasProp :: EffectFn1 String Boolean
 foreign import unsafeReadProcessProp :: forall a. EffectFn1 String a
@@ -54,8 +50,29 @@ type Options =
   { alwaysLast :: Boolean
   }
 
-_exit = Proxy :: Proxy "exit"
-_afterexit = Proxy :: Proxy "afterexit"
+newtype ExitEmitter = ExitEmitter EventEmitter
+
+exitEvent :: String
+exitEvent = "exit"
+
+afterexitEvent :: String
+afterexitEvent = "afterexit"
+
+exitE :: Maybe Int -> Maybe String -> ExitEmitter -> Effect Unit
+exitE code err (ExitEmitter emitter) =
+  void $ runEffectFn3 (unsafeEmitFn emitter) exitEvent (toNullable code) (toNullable err)
+
+exitH :: EventHandle ExitEmitter (Maybe Int -> Maybe String -> Effect Unit) (EffectFn2 (Nullable Int) (Nullable String) Unit)
+exitH = EventHandle exitEvent \cb -> mkEffectFn2 \code err ->
+  cb (toMaybe code) (toMaybe err)
+
+afterexitE :: Maybe Int -> Maybe String -> ExitEmitter -> Effect Unit
+afterexitE code err (ExitEmitter emitter) =
+  void $ runEffectFn3 (unsafeEmitFn emitter) afterexitEvent (toNullable code) (toNullable err)
+
+afterexitH :: EventHandle ExitEmitter (Maybe Int -> Maybe String -> Effect Unit) (EffectFn2 (Nullable Int) (Nullable String) Unit)
+afterexitH = EventHandle afterexitEvent \cb -> mkEffectFn2 \code err ->
+  cb (toMaybe code) (toMaybe err)
 
 onExit :: (Maybe Int -> Maybe String -> Effect Unit) -> Effect (Effect Unit)
 onExit cb = onExit' cb { alwaysLast: false }
@@ -69,25 +86,20 @@ onAfterExit cb = onExit' cb { alwaysLast: true }
 -- in the same project.
 onExit' :: (Maybe Int -> Maybe String -> Effect Unit) -> Options -> Effect (Effect Unit)
 onExit' cb options = do
-  { emitter } <- getGlobalRecOnProcessObject
+  { emitter: exitEmitter@(ExitEmitter emitter) } <- getGlobalRecOnProcessObject
   load
   unSubscribe <-
     if options.alwaysLast then do
-      emitter # subscribe _afterexit \exitCode sig ->
-        cb (toMaybe exitCode) (toMaybe sig)
+      exitEmitter # on afterexitH cb
     else do
-      emitter # subscribe _exit \exitCode sig ->
-        cb (toMaybe exitCode) (toMaybe sig)
+      exitEmitter # on exitH cb
   pure do
     unSubscribe
-    exitLen <- TypedEmitter.listenersLength _exit emitter
-    afterExitLen <- TypedEmitter.listenersLength _afterexit emitter
+    exitLen <- EventEmitter.listenerCount emitter exitEvent
+    afterExitLen <- EventEmitter.listenerCount emitter afterexitEvent
     when (exitLen == 0 && afterExitLen == 0) do
       unload
   where
-  toEmitter :: forall e h r. TypedEmitter e h r -> EventEmitter e h
-  toEmitter = unsafeCoerce
-
   unload = do
     { loadedRef
     , countRef
@@ -103,13 +115,13 @@ onExit' cb options = do
       Ref.modify_ (_ - 1) countRef
 
   emitFn = mkEffectFn3 \event code signal -> do
-    { emitter
+    { emitter: ExitEmitter emitter
     , emittedEventsRef
     } <- getGlobalRecOnProcessObject
     eventsAlreadyEmitted <- Ref.read emittedEventsRef
     unless (Set.member event eventsAlreadyEmitted) do
       Ref.modify_ (Set.insert event) emittedEventsRef
-      map (\(_ :: Boolean) -> unit) $ unsafeEmit (toEmitter emitter) event code signal
+      map (\(_ :: Boolean) -> unit) $ (runEffectFn3 (unsafeEmitFn emitter) event code signal)
 
   load = do
     { loadedRef
@@ -150,8 +162,8 @@ onExit' cb options = do
     count <- Ref.read countRef
     when (listenersLen == count) do
       unload
-      runEffectFn3 emitFn (reflectSymbol _exit) null (notNull sig)
-      runEffectFn3 emitFn (reflectSymbol _afterexit) null (notNull sig)
+      runEffectFn3 emitFn exitEvent null (notNull sig)
+      runEffectFn3 emitFn afterexitEvent null (notNull sig)
       -- "SIGHUP" throws an `ENOSYS` error on Windows,
       -- so use a supported signal instead
       let sig' = if isWin && sig == "SIGHUP" then "SIGINT" else sig
@@ -162,23 +174,23 @@ onExit' cb options = do
     , originalProcessReallyExit
     } <- getGlobalRecOnProcessObject
     let exitCode = fromMaybe 0 $ toMaybe code
-    runEffectFn2 unsafeWriteProcessProp "exit" exitCode
-    void $ withEmit $ emit _exit emitter (notNull exitCode) null
-    void $ withEmit $ emit _afterexit emitter (notNull exitCode) null
+    runEffectFn2 unsafeWriteProcessProp exitEvent exitCode
+    emitter # exitE (Just exitCode) Nothing
+    emitter # afterexitE (Just exitCode) Nothing
     runEffectFn2 processCallFn originalProcessReallyExit (notNull exitCode)
 
   processEmitFn = customProcessEmit $ mkEffectFn3 \runOriginalProcessEmit ev arg -> do
     { originalProcessEmit } <- getGlobalRecOnProcessObject
-    if ev == (reflectSymbol _exit) then do
+    if ev == exitEvent then do
       exitCode <- case toMaybe arg of
         Nothing -> processExitCode
         Just exitCode' -> do
-          runEffectFn2 unsafeWriteProcessProp "exit" exitCode'
+          runEffectFn2 unsafeWriteProcessProp exitEvent exitCode'
           pure $ notNull exitCode'
 
       ret <- runEffectFn1 runOriginalProcessEmit originalProcessEmit
-      runEffectFn3 emitFn (reflectSymbol _exit) exitCode null
-      runEffectFn3 emitFn (reflectSymbol _afterexit) exitCode null
+      runEffectFn3 emitFn exitEvent exitCode null
+      runEffectFn3 emitFn afterexitEvent exitCode null
       pure ret
     else do
       runEffectFn1 runOriginalProcessEmit originalProcessEmit
@@ -186,16 +198,11 @@ onExit' cb options = do
 signalExitProp :: String
 signalExitProp = "__purescript_signal_exit__"
 
-type EmitterRows =
-  ( exit :: Nullable Int -> Nullable String -> Effect Unit
-  , afterexit :: Nullable Int -> Nullable String -> Effect Unit
-  )
-
 type SignalEventRecord =
   { originalProcessEmit :: ProcessEmitFn
   , originalProcessReallyExit :: ProcessReallyExitFn
   , restoreOriginalProcessFunctions :: Effect Unit
-  , emitter :: TypedEmitter CanEmit CanHandle EmitterRows
+  , emitter :: ExitEmitter
   , countRef :: Ref Int
   , emittedEventsRef :: Ref (Set String)
   , loadedRef :: Ref Boolean
@@ -217,8 +224,8 @@ getGlobalRecOnProcessObject =
         runEffectFn2 unsafeWriteProcessProp "emit" originalProcessEmit
         runEffectFn2 unsafeWriteProcessProp "reallyExit" originalProcessReallyExit
 
-    emitter <- TypedEmitter.new (Proxy :: Proxy EmitterRows)
-    TypedEmitter.setUnlimitedListeners emitter
+    emitter <- EventEmitter.new
+    EventEmitter.setUnlimitedListeners emitter
     countRef <- Ref.new 0
     emittedEventsRef <- Ref.new Set.empty
     loadedRef <- Ref.new false
@@ -229,7 +236,7 @@ getGlobalRecOnProcessObject =
         { originalProcessEmit
         , originalProcessReallyExit
         , restoreOriginalProcessFunctions
-        , emitter
+        , emitter: ExitEmitter emitter
         , countRef
         , emittedEventsRef
         , loadedRef
