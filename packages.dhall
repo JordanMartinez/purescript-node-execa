@@ -66,3 +66,42 @@ in  upstream
         , "prelude"
         , "unsafe-coerce"
         ]
+      with node-child-process.version = "5af300b576fc7cc42a63d4d41b6c7afc97d0e9d3"
+      with node-child-process.dependencies =
+        [ "exceptions"
+        , "node-event-emitter"
+        , "foreign"
+        , "foreign-object"
+        , "functions"
+        , "node-fs"
+        , "node-streams"
+        , "node-os"
+        , "nullable"
+        , "posix-types"
+        , "unsafe-coerce"
+        ]
+      with node-os =
+        { dependencies =
+            [ "arrays"
+            , "bifunctors"
+            , "console"
+            , "control"
+            , "datetime"
+            , "effect"
+            , "either"
+            , "exceptions"
+            , "foldable-traversable"
+            , "foreign"
+            , "foreign-object"
+            , "functions"
+            , "maybe"
+            , "node-buffer"
+            , "nullable"
+            , "partial"
+            , "posix-types"
+            , "prelude"
+            , "unsafe-coerce"
+            ]
+        , repo = "https://github.com/purescript-node/purescript-node-os.git"
+        , version = "v5.1.0"
+        }

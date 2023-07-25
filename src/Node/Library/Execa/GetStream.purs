@@ -19,7 +19,6 @@ import Effect.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn3, mkEffectFn1, runEffectFn3)
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
-import Node.Buffer.Immutable (ImmutableBuffer)
 import Node.EventEmitter (on, on_)
 import Node.Stream (Duplex, Readable, Writable, dataH, newPassThrough)
 import Unsafe.Coerce (unsafeCoerce)
@@ -34,7 +33,7 @@ getStreamBuffer
   :: forall r
    . Readable r
   -> { maxBuffer :: Maybe Number }
-  -> Aff { buffer :: ImmutableBuffer, inputError :: Maybe Error }
+  -> Aff { buffer :: Buffer, inputError :: Maybe Error }
 getStreamBuffer inputStream initialOptions = do
   let options = { maxBuffer: fromMaybe infinity initialOptions.maxBuffer }
   interface <- liftEffect bufferStream
@@ -45,15 +44,13 @@ getStreamBuffer inputStream initialOptions = do
   makeAff \cb -> do
     runEffectFn3 pipeline inputStream interface.stream $ mkEffectFn1 \err -> do
       bufferedData <- interface.getBufferedValue
-      buff <- Buffer.unsafeFreeze bufferedData
-      cb $ Right { buffer: buff, inputError: toMaybe err }
+      cb $ Right { buffer: bufferedData, inputError: toMaybe err }
     rmListener <- interface.stream # on dataH \_ -> do
       bufferedLen <- interface.getBufferedLength
       when (bufferedLen > options.maxBuffer) do
         bufferedData <- interface.getBufferedValue
-        buff <- Buffer.unsafeFreeze bufferedData
         cb $ Right
-          { buffer: buff
+          { buffer: bufferedData
           , inputError: Just $ error $ maybe
               ("Max buffer exceeded")
               (\size -> "Max buffer size exceeded. Buffer size was: " <> show size)

@@ -14,6 +14,7 @@
   , "js-timers"
   , "maybe"
   , "node-buffer"
+  , "node-child-process"
   , "node-event-emitter"
   , "node-fs"
   , "node-human-signals"
