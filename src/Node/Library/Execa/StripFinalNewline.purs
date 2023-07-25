@@ -9,9 +9,9 @@ import Prelude
 import Data.Char (toCharCode)
 import Data.Int as Int
 import Data.String as String
-import Node.Buffer (class MutableBuffer, Buffer, BufferValueType(..), slice, unsafeFreeze)
+import Effect (Effect)
+import Node.Buffer (Buffer, BufferValueType(..), slice, unsafeFreeze, read, size)
 import Node.Buffer.Immutable (ImmutableBuffer)
-import Node.Buffer.Internal (read, size)
 
 stripFinalNewline :: String -> String
 stripFinalNewline s = do
@@ -26,7 +26,7 @@ stripFinalNewline s = do
     "\r" -> sDrop1
     _ -> s
 
-stripFinalNewlineBuf :: forall m. MutableBuffer Buffer m => Buffer -> m ImmutableBuffer
+stripFinalNewlineBuf :: Buffer -> Effect ImmutableBuffer
 stripFinalNewlineBuf b = do
   len <- size b
   -- PureScript implementation note: 

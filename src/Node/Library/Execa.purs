@@ -49,7 +49,7 @@ import Data.String.Regex as Regex
 import Data.String.Regex.Flags (global, noFlags)
 import Data.String.Regex.Unsafe (unsafeRegex)
 import Effect (Effect)
-import Effect.Aff (Aff, Error, Milliseconds(..), effectCanceler, finally, forkAff, joinFiber, makeAff, never, nonCanceler, suspendAff)
+import Effect.Aff (Aff, Error, Milliseconds(..), effectCanceler, finally, forkAff, joinFiber, makeAff, never, suspendAff)
 import Effect.Class (liftEffect)
 import Effect.Exception (throw)
 import Effect.Exception as Exception
@@ -60,11 +60,11 @@ import Foreign (Foreign, readInt, readString, renderForeignError, unsafeToForeig
 import Foreign.Object (Object)
 import Foreign.Object as Object
 import Node.Buffer (unsafeThaw)
+import Node.Buffer as Buffer
 import Node.Buffer.Immutable (ImmutableBuffer)
 import Node.Buffer.Immutable as ImmutableBuffer
-import Node.Buffer.Internal as Buffer
 import Node.Encoding (Encoding(..))
-import Node.EventEmitter (EventHandle(..), once_)
+import Node.EventEmitter (EventHandle(..), on, once)
 import Node.EventEmitter.UtilTypes (EventHandle1, EventHandle0)
 import Node.Library.Execa.CrossSpawn (CrossSpawnConfig)
 import Node.Library.Execa.CrossSpawn as CrossSpawn
@@ -77,7 +77,6 @@ import Node.Library.HumanSignals (signals)
 import Node.Process as Process
 import Node.Stream (Readable, Writable, destroy)
 import Node.Stream as Stream
-import Node.Stream as Streams
 import Partial.Unsafe (unsafeCrashWith)
 import Record as Record
 import Type.Proxy (Proxy(..))
@@ -373,16 +372,19 @@ execa file args buildOptions = do
     , windowsHide: options.windowsHide
     }
   spawnedFiber <- suspendAff $ makeAff \cb -> do
-    (ExecaChildProcess spawned) # once_ exitH case _ of
+    rmExit <- (ExecaChildProcess spawned) # once exitH case _ of
       Left i -> cb $ Right $ ExitCode i
       Right sig -> cb $ Right $ Killed sig
 
-    (ExecaChildProcess spawned) # once_ errorH \error -> do
+    rmError <- (ExecaChildProcess spawned) # once errorH \error -> do
       cb $ Right $ SpawnError error
 
-    Streams.onError (stdin spawned) \error -> do
+    rmStreamError <- (stdin spawned) # on Stream.errorH \error -> do
       cb $ Right $ StdinError error
-    pure nonCanceler
+    pure $ effectCanceler do
+      rmExit
+      rmError
+      rmStreamError
   timeoutFiber <- suspendAff do
     case parsed.options.timeoutWithKillSignal of
       Just { milliseconds, killSignal } -> do
@@ -511,13 +513,13 @@ execa file args buildOptions = do
         { stream: stdin spawned
         , writeUtf8: \string -> liftEffect do
             buf <- Buffer.fromString string UTF8
-            void $ Stream.write (stdin spawned) buf mempty
+            void $ Stream.write (stdin spawned) buf
         , writeUtf8End: \string -> liftEffect do
             buf <- Buffer.fromString string UTF8
-            void $ Stream.write (stdin spawned) buf mempty
-            void $ Stream.end (stdin spawned) mempty
+            void $ Stream.write (stdin spawned) buf
+            void $ Stream.end (stdin spawned)
         , end: liftEffect do
-            void $ Stream.end (stdin spawned) mempty
+            void $ Stream.end (stdin spawned)
         , shareParentProcessStdin: liftEffect do
             void $ Stream.pipe Process.stdin (stdin spawned)
         }

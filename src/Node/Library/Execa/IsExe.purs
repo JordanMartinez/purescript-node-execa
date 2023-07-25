@@ -24,13 +24,16 @@ import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
 import Effect.Aff (Aff, Error, makeAff, nonCanceler)
 import Effect.Exception (try)
-import Effect.Uncurried (EffectFn2, runEffectFn2)
 import Node.FS.Async as FsAsync
-import Node.FS.Stats (Stats(..), isFile, isSymbolicLink)
+import Node.FS.Stats (Stats)
+import Node.FS.Stats as Stats
 import Node.FS.Sync as FsSync
 import Node.Library.Execa.Utils (envKey)
 import Node.Platform (Platform(..))
 import Node.Process (platform)
+import Node.Process as Process
+import Data.Posix (Gid(..), Uid(..))
+import Safe.Coerce (coerce)
 import Unsafe.Coerce (unsafeCoerce)
 
 type IsExeOptions =
@@ -51,7 +54,7 @@ defaultIsExeOptions =
 isExe :: String -> IsExeOptions -> Aff (Tuple (Maybe Error) Boolean)
 isExe path options = do
   let
-    core = case platform of
+    core = case Process.platform of
       Just Win32 -> coreWindows
       _ -> coreNonWindows
 
@@ -93,8 +96,8 @@ coreWindows =
   where
   checkStat :: Stats -> String -> IsExeOptions -> Effect Boolean
   checkStat stat path options
-    | not (isSymbolicLink stat)
-    , not (isFile stat) = pure false
+    | not (Stats.isSymbolicLink stat)
+    , not (Stats.isFile stat) = pure false
     | otherwise = checkPathExt path options
 
   checkPathExt :: String -> IsExeOptions -> Effect Boolean
@@ -151,17 +154,17 @@ coreNonWindows =
   checkStat :: Stats -> IsExeOptions -> Effect Boolean
   checkStat stat options = do
     b <- checkMode stat options
-    pure $ (isFile stat) && b
+    pure $ (Stats.isFile stat) && b
 
   checkMode :: Stats -> IsExeOptions -> Effect Boolean
-  checkMode (Stats statObj) options = do
+  checkMode statsObj options = do
     let
-      mode = floor statObj.mode
-      uid = floor statObj.uid
-      gid = floor statObj.gid
+      mode = floor $ Stats.mode statsObj
+      uid = floor $ Stats.uid statsObj
+      gid = floor $ Stats.gid statsObj
 
-    processMbUid <- getUid
-    processMbGid <- getGid
+    processMbUid :: Maybe Int <- coerce $ Process.getUid
+    processMbGid :: Maybe Int <- coerce $ Process.getGid
 
     let
       myUid = options.uid <|> processMbUid
@@ -179,13 +182,3 @@ coreNonWindows =
       , truthy (mode .&. u) && maybe false (eq uid) myUid
       , truthy (mode .&. ug) && maybe false (eq 0) myUid
       ]
-
-foreign import getUidImpl :: EffectFn2 (forall a. Maybe a) (forall a. a -> Maybe a) (Maybe Int)
-
-foreign import getGidImpl :: EffectFn2 (forall a. Maybe a) (forall a. a -> Maybe a) (Maybe Int)
-
-getUid :: Effect (Maybe Int)
-getUid = runEffectFn2 getUidImpl Nothing Just
-
-getGid :: Effect (Maybe Int)
-getGid = runEffectFn2 getGidImpl Nothing Just
