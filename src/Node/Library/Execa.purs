@@ -8,8 +8,6 @@ module Node.Library.Execa
   , ExecaOptions
   , ExecaProcess
   , ExecaSuccess
-  , ExecaChildProcess
-  , toChildProcess
   , execa
   , ExecaSyncOptions
   , ExecaSyncResult
@@ -259,7 +257,7 @@ type ExecaProcess =
   , killForcedWithSignal :: KillSignal -> Milliseconds -> Aff Boolean
   , killWithSignal :: KillSignal -> Aff Boolean
   , killed :: Aff Boolean
-  , childProcess :: ExecaChildProcess
+  , childProcess :: ChildProcess
   , pid :: Aff (Maybe Pid)
   , pidExists :: Aff Boolean
   , ref :: Aff Unit
@@ -294,11 +292,6 @@ type ExecaSuccess =
   , stderr :: String
   , stdout :: String
   }
-
-newtype ExecaChildProcess = ExecaChildProcess CP.ChildProcess
-
-toChildProcess :: ExecaChildProcess -> ChildProcess
-toChildProcess (ExecaChildProcess cp) = cp
 
 -- | Replacement for `childProcess.spawn`. Since this is asynchronous,
 -- | the returned value will not provide any results until one calls `spawned.result`:
@@ -484,7 +477,7 @@ execa file args buildOptions = do
     , signalCode: liftEffect $ CP.signalCode spawned
     , spawnArgs: CP.spawnArgs spawned
     , spawnFile: CP.spawnFile spawned
-    , childProcess: ExecaChildProcess spawned
+    , childProcess: spawned
     , stdin:
         { stream: CP.stdin spawned
         , writeUtf8: \string -> liftEffect do
