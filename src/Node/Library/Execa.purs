@@ -483,8 +483,6 @@ execa file args buildOptions = do
     , pid: liftEffect $ CP.pid spawned
     , unref: liftEffect $ CP.unref spawned
     , ref: liftEffect $ CP.ref spawned
-    -- , send: \foreignData handle mkOptions cb -> liftEffect do
-    --     unsafeSendOptsCb foreignData (toNullable handle) mkOptions cb $ CP.toUnsafeChildProcess spawned
     , signalCode: liftEffect $ CP.signalCode spawned
     , spawnArgs: CP.spawnArgs spawned
     , spawnFile: CP.spawnFile spawned
