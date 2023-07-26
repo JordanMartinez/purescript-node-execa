@@ -240,7 +240,7 @@ handleArguments file args initOptions = do
 
 -- | Re-exposes all the bindings for `ChildProcess`.
 -- | In addition exposes, the following:
--- | `result` - gets the result of the process
+-- | `getResult` - gets the result of the process
 -- | `cancel` - kill the child process, but indicate it was cancelled rather than killed in the error message
 -- | `stdin.stream` - access the child process' `stdin`
 -- | `stdin.writeUt8` - Write a string to the child process' `stdin`
@@ -262,7 +262,7 @@ type ExecaProcess =
   , pid :: Aff (Maybe Pid)
   , pidExists :: Aff Boolean
   , ref :: Aff Unit
-  , result :: Aff (Either ExecaError ExecaSuccess)
+  , getResult :: Aff (Either ExecaError ExecaSuccess)
   , signalCode :: Aff (Maybe String)
   , spawnArgs :: Array String
   , spawnFile :: String
@@ -297,8 +297,8 @@ type ExecaSuccess =
   }
 
 -- | Replacement for `childProcess.spawn`. Since this is asynchronous,
--- | the returned value will not provide any results until one calls `spawned.result`:
--- | `execa ... >>= \spawned -> spawned.result`. 
+-- | the returned value will not provide any results until one calls `spawned.getResult`:
+-- | `execa ... >>= \spawned -> spawned.getResult`. 
 -- |
 -- | Override the default options using record update syntax.
 -- | If defaults are good enough, just use `identity`.
@@ -306,7 +306,7 @@ type ExecaSuccess =
 -- | spawned <- execa "git checkout -b my-branch" (_
 -- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
 -- |    })
--- | spawned.result
+-- | spawned.getResult
 -- |
 -- | spawned2 <- execa "git checkout -b my-branch" identity
 -- | spawned2.result
@@ -509,7 +509,7 @@ execa file args buildOptions = do
         }
     , stdio: CP.stdio spawned
     , cancel
-    , result: joinFiber run
+    , getResult: joinFiber run
     , waitSpawned: do
         mbPid <- liftEffect $ pid spawned
         case mbPid of
