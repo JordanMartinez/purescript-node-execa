@@ -22,7 +22,7 @@ in  upstream
         , "unsafe-coerce"
         , "nullable"
         ]
-      with node-streams.version = "v8.0.0"
+      with node-streams.version = "3909b1682ff7fe877b7c548dcf59bc301bacd06e"
       with node-streams.dependencies =
         [ "aff"
         , "effect"

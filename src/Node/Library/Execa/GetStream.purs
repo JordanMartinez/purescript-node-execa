@@ -10,17 +10,16 @@ import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
-import Data.Nullable (Nullable, toMaybe)
 import Data.Number (infinity)
 import Effect (Effect)
 import Effect.Aff (Aff, Error, effectCanceler, error, makeAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
-import Effect.Uncurried (EffectFn1, EffectFn3, mkEffectFn1, runEffectFn3)
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
-import Node.EventEmitter (on, on_)
-import Node.Stream (Duplex, Readable, Writable, dataH, newPassThrough)
+import Node.EventEmitter (on)
+import Node.Stream (Duplex, Readable, dataH, newPassThrough)
+import Node.Stream as Stream
 import Unsafe.Coerce (unsafeCoerce)
 
 type Interface =
@@ -42,9 +41,9 @@ getStreamBuffer inputStream initialOptions = do
   -- fails or not. It also destroys the input stream if an error occurs
   -- but we'll handle that outside of this function.
   makeAff \cb -> do
-    runEffectFn3 pipeline inputStream interface.stream $ mkEffectFn1 \err -> do
+    Stream.pipeline inputStream [] interface.stream \err -> do
       bufferedData <- interface.getBufferedValue
-      cb $ Right { buffer: bufferedData, inputError: toMaybe err }
+      cb $ Right { buffer: bufferedData, inputError: err }
     rmListener <- interface.stream # on dataH \_ -> do
       bufferedLen <- interface.getBufferedLength
       when (bufferedLen > options.maxBuffer) do
@@ -57,6 +56,7 @@ getStreamBuffer inputStream initialOptions = do
               initialOptions.maxBuffer
           }
     pure $ effectCanceler do
+      interface.unsubcribe
       rmListener
   where
   -- PureScript implementation note:
@@ -66,7 +66,7 @@ getStreamBuffer inputStream initialOptions = do
     chunksRef <- Ref.new []
     lengthRef <- Ref.new 0.0
     stream <- newPassThrough
-    stream # on_ dataH \buf -> do
+    rmData <- stream # on dataH \buf -> do
       Ref.modify_ (\chunks -> Array.snoc chunks buf) chunksRef
       bufLen <- Buffer.size buf
       Ref.modify_ (_ + (toNumber bufLen)) lengthRef
@@ -83,6 +83,5 @@ getStreamBuffer inputStream initialOptions = do
           Buffer.concat' chunks $ asTooLargeInt len
       , getBufferedLength: Ref.read lengthRef
       , stream
+      , unsubcribe: rmData
       }
-
-foreign import pipeline :: forall w r. EffectFn3 (Readable w) (Writable r) (EffectFn1 (Nullable Error) Unit) Unit
