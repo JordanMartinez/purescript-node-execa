@@ -91,29 +91,29 @@ getEnv r = do
       npmRunPathEnv env $ defaultNpmRunPathOptions { cwd = options.localDir, execPath = options.execPath }
 
 -- | - `cleanup` (default: `true`): Kill the spawned process when the parent process exits unless either:
--- |  - the spawned process is `detached`
--- |  - the parent process is terminated abruptly, for example, with SIGKILL as opposed to SIGTERM or a normal exit
--- | `- preferLocal` (default: `Nothing`): When `Just`, includes and prefers locally-installed `node_modules/.bin` binaries
+-- |    - the spawned process is `detached`
+-- |    - the parent process is terminated abruptly, for example, with SIGKILL as opposed to SIGTERM or a normal exit
+-- | - `preferLocal` (default: `Nothing`): When `Just`, includes and prefers locally-installed `node_modules/.bin` binaries
 -- |   when looking for a binary to execute. In short, if you `npm install foo``, you can run `execa "foo"`.
--- |   `localDir` (if `Nothing`, `Process.cwd` is used) - Preferred path to find locally installed binaries in
--- |   `execPath` (if `Nothing`, `Process.execPath` is used) - Path to the Node.js executable to use in child processes. 
+-- |   - `localDir` (if `Nothing`, `Process.cwd` is used) - Preferred path to find locally installed binaries in
+-- |   - `execPath` (if `Nothing`, `Process.execPath` is used) - Path to the Node.js executable to use in child processes. 
 -- |      This can be either an absolute path or a path relative to the `localDir` option.
 -- | - `stripFinalNewline` - (default: `true`). If enabled, trims the newline character of `stdout`/`stderr` (e.g. `/(?:/r/n)|\r|\n$/`
 -- | - `extendEnv` (default: `true`) - Extends the child process' `env` with `Process.env`
 -- | - `argv0` - see Node docs
 -- | - `stdioExtra` - Append any other `stdio` values to the array.
--- |    The `stdio` array used is always `["pipe", "pipe", "pipe", "ipc"] <> fromMaybe [] options.stdioExtra`
+-- |      The `stdio` array used is always `["pipe", "pipe", "pipe", "ipc"] <> fromMaybe [] options.stdioExtra`
 -- | - `detached` - see Node docs
 -- | - `uid` - see Node docs
 -- | - `gid` - see Node docs
 -- | - `shell` - see Node docs. The Boolean variant is not supported
 -- | - `timeout` - the amount of time to wait before killing the child process with the given kill signal
 -- | - `maxBuffer` - the amount of buffer space available to `stdout`/`stderr`.
--- |    If more data is written to their buffers, child process will error with a max buffer size exceeded error.
+-- |      If more data is written to their buffers, child process will error with a max buffer size exceeded error.
 -- | - `windowsVerbatimArguments` - see Node docs
 -- | - `windowsHide` - see Node docs
 -- | - `windowsEnableCmdEcho` (default: `true`) - Enables the `\q` flag when using the `cmd` shell. See https://github.com/nodejs/node/issues/27120
--- |    This goes against the Windows' defaults but makes the `stdout`/`stderr` behavior more consistent across different operating systems.
+-- |      This goes against the Windows' defaults but makes the `stdout`/`stderr` behavior more consistent across different operating systems.
 type ExecaOptions =
   -- execa options
   { cleanup :: Maybe Boolean
@@ -518,7 +518,7 @@ execa file args buildOptions = do
 -- | - `cleanup` (default: `true`): Kill the spawned process when the parent process exits unless either:
 -- |    - the spawned process is `detached`
 -- |    - the parent process is terminated abruptly, for example, with SIGKILL as opposed to SIGTERM or a normal exit
--- | `- preferLocal` (default: `Nothing`): When `Just`, includes and prefers locally-installed `node_modules/.bin` binaries
+-- | - `preferLocal` (default: `Nothing`): When `Just`, includes and prefers locally-installed `node_modules/.bin` binaries
 -- |   when looking for a binary to execute. In short, if you `npm install foo``, you can run `execa "foo"`.
 -- |   `localDir` (if `Nothing`, `Process.cwd` is used) - Preferred path to find locally installed binaries in
 -- |   `execPath` (if `Nothing`, `Process.execPath` is used) - Path to the Node.js executable to use in child processes. 
@@ -754,6 +754,25 @@ execaKill mbKillSignal forceKillAfterTimeout cp = do
 
 foreign import setTimeoutImpl :: EffectFn2 Int (Effect Unit) { unref :: Effect Unit }
 
+-- | - Execa options
+-- |     - `cleanup`
+-- |     - `stripFinalNewline`
+-- |     - `encoding`
+-- | - Child process spawn options
+-- |     - `cwd`
+-- |     - `stdioExtra`
+-- |     - `env`
+-- |     - `argv0`
+-- |     - `detached`
+-- |     - `uid`
+-- |     - `gid`
+-- |     - `shell`
+-- |     - `timeout`
+-- |     - `killSignal`
+-- |     - `timeoutWithKillSignal`
+-- |     - `maxBuffer`
+-- |     - `windowsVerbatimArguments`
+-- |     - `windowsHide`
 type ExecaRunOptions =
   -- execa options
   { cleanup :: Boolean
