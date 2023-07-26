@@ -4,9 +4,12 @@ import Prelude
 
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
+import Data.Time.Duration (Milliseconds(..))
 import Effect.Class (liftEffect)
+import Node.Buffer as Buffer
+import Node.ChildProcess.Types (fromKillSignal, intSignal, stringSignal)
+import Node.Encoding (Encoding(..))
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
-import Node.Library.Execa.Utils (utf8)
 import Node.Library.HumanSignals (signals)
 import Node.Path as Path
 import Test.Node.Library.Utils (isWindows, itNix)
@@ -51,30 +54,30 @@ spec = describe "execa" do
           Left e -> e.isCanceled `shouldEqual` true
       it "basic kill (string) produces error" do
         spawned <- execa shellCmd [ sleepFile, "1" ] identity
-        _ <- spawned.killWithSignal (Right "SIGTERM")
+        _ <- spawned.killWithSignal (stringSignal "SIGTERM")
         result <- spawned.result
         case result of
           Right _ -> fail "Cancelling should work"
-          Left e -> e.signal `shouldEqual` (Just $ Right "SIGTERM")
+          Left e -> e.signal `shouldEqual` (Just $ stringSignal "SIGTERM")
       it "basic kill (int) produces error" do
         spawned <- execa shellCmd [ sleepFile, "1" ] identity
-        _ <- spawned.killWithSignal (Left signals.byName."SIGTERM".number)
+        _ <- spawned.killWithSignal (intSignal signals.byName."SIGTERM".number)
         result <- spawned.result
         case result of
           Right _ -> fail "Cancelling should work"
-          Left e -> case e.signal of
+          Left e -> case map fromKillSignal e.signal of
             Just (Left i) -> i `shouldEqual` signals.byName."SIGTERM".number
             Just (Right s) -> s `shouldEqual` signals.byName."SIGTERM".name
             _ -> fail "Did not get a kill signal"
     describe "timeout produces error" do
       it "basic timeout produces error" do
         spawned <- execa shellCmd [ sleepFile, "10" ]
-          (_ { timeout = Just { milliseconds: 400.0, killSignal: Right "SIGTERM" } })
+          (_ { timeout = Just { milliseconds: Milliseconds 400.0, killSignal: stringSignal "SIGTERM" } })
         result <- spawned.result
         case result of
           Right _ -> fail "Timeout should work"
           Left e -> do
-            e.signal `shouldEqual` (Just $ Right "SIGTERM")
+            e.signal `shouldEqual` (Just $ stringSignal "SIGTERM")
             e.timedOut `shouldEqual` true
   describe "execaSync" do
     describe "`cat` tests" do
@@ -84,7 +87,8 @@ spec = describe "execa" do
           Right r -> r.stdout `shouldContain` "let config ="
           Left e -> fail e.message
       itNix "input is buffer" do
-        result <- liftEffect $ execaSync "cat" [ "-" ] (_ { input = Just $ utf8.toBuffer "test" })
+        input <- liftEffect $ Buffer.fromString "test" UTF8
+        result <- liftEffect $ execaSync "cat" [ "-" ] (_ { input = Just input })
         case result of
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message
@@ -111,7 +115,8 @@ spec = describe "execa" do
           Right r -> r.stdout `shouldContain` "let config ="
           Left e -> fail e.message
       itNix "input is buffer" do
-        result <- liftEffect $ execaCommandSync "cat" (_ { input = Just $ utf8.toBuffer "test" })
+        input <- liftEffect $ Buffer.fromString "test" UTF8
+        result <- liftEffect $ execaCommandSync "cat" (_ { input = Just input })
         case result of
           Right r -> r.stdout `shouldEqual` "test"
           Left e -> fail e.message
