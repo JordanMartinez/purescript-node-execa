@@ -54,7 +54,7 @@ in  upstream
         , "strings"
         , "unsafe-coerce"
         ]
-      with node-process.version = "v11.1.0"
+      with node-process.version = "v11.1.1"
       with node-process.dependencies =
         [ "effect"
         , "foreign-object"
