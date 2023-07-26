@@ -29,7 +29,6 @@ import Data.Int (floor, toNumber)
 import Data.Lens (Prism', is, preview, prism)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
-import Data.Nullable (Nullable, toMaybe, toNullable)
 import Data.Posix (Gid, Pid, Uid)
 import Data.String as String
 import Data.String.Regex (Regex, test)
@@ -43,14 +42,14 @@ import Effect.Exception (throw)
 import Effect.Exception as Exception
 import Effect.Ref as Ref
 import Effect.Timer (clearTimeout, setTimeout)
-import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3)
+import Effect.Uncurried (EffectFn2, runEffectFn2)
 import Foreign.Object (Object)
 import Foreign.Object as Object
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
-import Node.ChildProcess (ChildProcess)
+import Node.ChildProcess (ChildProcess, kill')
 import Node.ChildProcess as CP
-import Node.ChildProcess.Types (Exit(..), KillSignal, StdIO, customShell, fromKillSignal, intSignal, stringSignal)
+import Node.ChildProcess.Types (Exit(..), KillSignal, StdIO, customShell, fromKillSignal, fromKillSignal', stringSignal)
 import Node.Encoding (Encoding(..))
 import Node.Errors.SystemError (SystemError)
 import Node.Errors.SystemError as SystemError
@@ -369,7 +368,7 @@ execa file args buildOptions = do
       Just { milliseconds, killSignal: signal } -> do
         makeAff \cb -> do
           tid <- setTimeout ((unsafeCoerce :: Milliseconds -> Int) milliseconds) do
-            void $ execaKill signal Nothing spawned
+            void $ execaKill (Just signal) Nothing spawned
             void $ destroy (CP.stdin spawned)
             void $ destroy (CP.stdout spawned)
             void $ destroy (CP.stderr spawned)
@@ -394,12 +393,11 @@ execa file args buildOptions = do
         ( do
             liftEffect do
               removal <- SignalExit.onExit \_ _ -> do
-                void $ execaKill (stringSignal "SIGTERM") Nothing spawned
+                void $ execaKill (Just $ stringSignal "SIGTERM") Nothing spawned
               Ref.write (Just removal) removeHandlerRef
             joinFiber mainFiber
         )
 
-  liftEffect $ runEffectFn2 monkeyPatchKill spawned spawnedKill
   isCanceledRef <- liftEffect $ Ref.new false
   -- PureScript implementaton note:
   -- We don't need to `handleInput` because
@@ -408,7 +406,7 @@ execa file args buildOptions = do
   let
     cancel :: Aff Unit
     cancel = liftEffect do
-      killSucceeded <- execaKill (stringSignal "SIGTERM") Nothing spawned
+      killSucceeded <- execaKill (Just $ stringSignal "SIGTERM") Nothing spawned
       when killSucceeded do
         Ref.write true isCanceledRef
 
@@ -471,13 +469,13 @@ execa file args buildOptions = do
     , connected: liftEffect $ CP.connected spawned
     , disconnect: liftEffect $ CP.disconnect spawned
     , exitCode: liftEffect $ CP.exitCode spawned
-    , kill: liftEffect $ execaKill (stringSignal "SIGTERM") Nothing spawned
+    , kill: liftEffect $ execaKill (Just $ stringSignal "SIGTERM") Nothing spawned
     , killWithSignal: \signal -> liftEffect do
-        execaKill signal Nothing spawned
+        execaKill (Just signal) Nothing spawned
     , killForced: \forceKillAfterTimeout -> liftEffect do
-        execaKill (stringSignal "SIGTERM") (Just forceKillAfterTimeout) spawned
+        execaKill (Just $ stringSignal "SIGTERM") (Just forceKillAfterTimeout) spawned
     , killForcedWithSignal: \signal forceKillAfterTimeout -> liftEffect do
-        execaKill signal (Just forceKillAfterTimeout) spawned
+        execaKill (Just signal) (Just forceKillAfterTimeout) spawned
     , pidExists: liftEffect $ CP.pidExists spawned
     , killed: liftEffect $ CP.killed spawned
     , pid: liftEffect $ CP.pid spawned
@@ -729,44 +727,30 @@ noEscapeRegex = unsafeRegex """^[\w.-]+$""" noFlags
 doubleQuotesregex ∷ Regex
 doubleQuotesregex = unsafeRegex "\"" global
 
-spawnedKill
-  :: EffectFn3
-       (EffectFn1 KillSignal Boolean)
-       (Nullable KillSignal)
-       (Nullable Milliseconds)
-       Boolean
-spawnedKill = mkEffectFn3 \killFn numOrStringSignal forceKillAfterTimeout -> do
+execaKill
+  :: Maybe KillSignal
+  -> Maybe Milliseconds
+  -> ChildProcess
+  -> Effect Boolean
+execaKill mbKillSignal forceKillAfterTimeout cp = do
   let
-    signal = case toMaybe numOrStringSignal of
-      Nothing -> Right "SIGTERM"
-      Just numOrStr -> fromKillSignal numOrStr
-  killSignalSucceeded <- runEffectFn1 killFn $ either intSignal stringSignal signal
+    killSignal = fromMaybe (stringSignal "SIGTERM") mbKillSignal
+  killSignalSucceeded <- kill' killSignal cp
   let
     mbTimeout = do
-      guard $ isSigTerm signal
+      guard $ isSigTerm killSignal
       guard killSignalSucceeded
-      toMaybe forceKillAfterTimeout
+      forceKillAfterTimeout
   for_ mbTimeout \(Milliseconds timeout) -> do
     t <- runEffectFn2 setTimeoutImpl (floor timeout) do
-      void $ runEffectFn1 killFn $ stringSignal "SIGKILL"
+      void $ kill' (stringSignal "SIGKILL") cp
     t.unref
   pure killSignalSucceeded
   where
-  isSigTerm :: Either Int String -> Boolean
-  isSigTerm = case _ of
-    Left i -> maybe false (eq "SIGTERM" <<< String.toUpper <<< _.name) $ Map.lookup i signals.byNumber
-    Right s -> eq "SIGTERM" $ String.toUpper s
-
-foreign import monkeyPatchKill
-  :: EffectFn2
-       ChildProcess
-       ( EffectFn3
-           (EffectFn1 KillSignal Boolean)
-           (Nullable KillSignal)
-           (Nullable Milliseconds)
-           Boolean
-       )
-       Unit
+  isSigTerm :: KillSignal -> Boolean
+  isSigTerm = fromKillSignal'
+    (\i -> maybe false (eq "SIGTERM" <<< String.toUpper <<< _.name) $ Map.lookup i signals.byNumber)
+    (\s -> eq "SIGTERM" $ String.toUpper s)
 
 foreign import setTimeoutImpl :: EffectFn2 Int (Effect Unit) { unref :: Effect Unit }
 
@@ -909,21 +893,3 @@ execaCommandSync s buildOptions = do
       execaSync file args buildOptions
     Nothing ->
       liftEffect $ throw $ "Command " <> show s <> " could not be parsed into `{ file :: String, args :: Array String }` value."
-
--- | Same as `kill' SIGTERM`
-execaKill :: KillSignal -> Maybe Milliseconds -> ChildProcess -> Effect Boolean
-execaKill sig forceKillAfterTimeout cp = runEffectFn3 killImpl cp sig (toNullable forceKillAfterTimeout)
-
--- | Send a signal to a child process. In the same way as the
--- | [unix kill(2) system call](https://linux.die.net/man/2/kill),
--- | sending a signal to a child process won't necessarily kill it.
--- |
--- | The resulting effects of this function depend on the process
--- | and the signal. They can vary from system to system.
--- | The child process might emit an `"error"` event if the signal
--- | could not be delivered.
--- |
--- | If `forceKillAfterTimeout` is defined and
--- | the kill signal was successful, `childProcess.kill "SIGKILL"`
--- | will be called once the timeout is reached.
-foreign import killImpl :: EffectFn3 (ChildProcess) KillSignal (Nullable Milliseconds) Boolean
