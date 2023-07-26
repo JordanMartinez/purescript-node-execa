@@ -22,7 +22,7 @@ in  upstream
         , "unsafe-coerce"
         , "nullable"
         ]
-      with node-streams.version = "3909b1682ff7fe877b7c548dcf59bc301bacd06e"
+      with node-streams.version = "v9.0.0"
       with node-streams.dependencies =
         [ "aff"
         , "effect"
@@ -34,7 +34,7 @@ in  upstream
         , "prelude"
         , "unsafe-coerce"
         ]
-      with node-fs.version = "v9.0.0"
+      with node-fs.version = "v9.1.0"
       with node-fs.dependencies =
         [ "datetime"
         , "effect"
@@ -54,7 +54,7 @@ in  upstream
         , "strings"
         , "unsafe-coerce"
         ]
-      with node-process.version = "v11.1.1"
+      with node-process.version = "v11.2.0"
       with node-process.dependencies =
         [ "effect"
         , "foreign-object"
@@ -66,7 +66,7 @@ in  upstream
         , "prelude"
         , "unsafe-coerce"
         ]
-      with node-child-process.version = "8e031fefa99056f8eec2e80815abf90a4c7d186f"
+      with node-child-process.version = "v11.0.0"
       with node-child-process.dependencies =
         [ "exceptions"
         , "node-event-emitter"
