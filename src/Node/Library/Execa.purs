@@ -47,6 +47,7 @@ import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
 import Node.ChildProcess (ChildProcess, kill')
 import Node.ChildProcess as CP
+import Node.ChildProcess.Aff (waitSpawned)
 import Node.ChildProcess.Types (Exit(..), KillSignal, StdIO, customShell, fromKillSignal, fromKillSignal', stringSignal)
 import Node.Encoding (Encoding(..))
 import Node.Errors.SystemError (SystemError)
@@ -265,6 +266,7 @@ type ExecaProcess =
   , signalCode :: Aff (Maybe String)
   , spawnArgs :: Array String
   , spawnFile :: String
+  , waitSpawned :: Aff (Either SystemError Pid)
   , stdin ::
       { stream :: Writable ()
       , writeUtf8 :: String -> Aff Unit
@@ -506,6 +508,11 @@ execa file args buildOptions = do
         }
     , cancel
     , result: joinFiber run
+    , waitSpawned: do
+        mbPid <- liftEffect $ pid spawned
+        case mbPid of
+          Just p -> pure $ Right p
+          Nothing -> waitSpawned spawned
     }
 
 -- | - `cleanup` (default: `true`): Kill the spawned process when the parent process exits unless either:
