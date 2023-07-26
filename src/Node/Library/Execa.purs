@@ -45,7 +45,7 @@ import Foreign.Object (Object)
 import Foreign.Object as Object
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
-import Node.ChildProcess (ChildProcess, kill')
+import Node.ChildProcess (ChildProcess, kill', pid)
 import Node.ChildProcess as CP
 import Node.ChildProcess.Aff (waitSpawned)
 import Node.ChildProcess.Types (Exit(..), KillSignal, StdIO, customShell, fromKillSignal, fromKillSignal', stringSignal)
@@ -284,6 +284,7 @@ type ExecaProcess =
       , output :: Aff { text :: String, error :: Maybe Exception.Error }
       , pipeToParentStderr :: Aff Unit
       }
+  , stdio :: Array StdIO
   , unref :: Aff Unit
   }
 
@@ -506,6 +507,7 @@ execa file args buildOptions = do
         , pipeToParentStderr: liftEffect do
             void $ Stream.pipe (CP.stderr spawned) Process.stderr
         }
+    , stdio: CP.stdio spawned
     , cancel
     , result: joinFiber run
     , waitSpawned: do
