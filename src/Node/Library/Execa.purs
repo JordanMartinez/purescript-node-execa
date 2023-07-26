@@ -238,14 +238,16 @@ handleArguments file args initOptions = do
       }
   pure { file: parsed.command, args: parsed.args, options, parsed }
 
--- | Re-exposes all the bindings for `ChildProcess`.
+-- | Re-exposes most of the bindings for `ChildProcess`.
 -- | In addition exposes, the following:
--- | `getResult` - gets the result of the process
--- | `cancel` - kill the child process, but indicate it was cancelled rather than killed in the error message
--- | `stdin.stream` - access the child process' `stdin`
--- | `stdin.writeUt8` - Write a string to the child process' `stdin`
--- | `stdin.writeUt8End` - Write a string to the child process' `stdin` and then `end` the stream
--- | `stdin.end` - End the child process' `stdin`
+-- | - `getResult` - gets the result of the process
+-- | - `cancel` - kill the child process, but indicate it was cancelled rather than killed in the error message
+-- | - `killForced*` - kills the child process with the given signal or SIGTERM if not defined. If child is still alive after timeout, sends `SIGKILL` to child.
+-- | - Convenience functions for `stdin`/`stdout`/`stderr`
+-- |     - `stdin.stream` - access the child process' `stdin`
+-- |     - `stdin.writeUt8` - Write a string to the child process' `stdin`
+-- |     - `stdin.writeUt8End` - Write a string to the child process' `stdin` and then `end` the stream
+-- |     - `stdin.end` - End the child process' `stdin`
 type ExecaProcess =
   { cancel :: Aff Unit
   , unsafeChannelRef :: Aff Unit
