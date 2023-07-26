@@ -18,22 +18,12 @@ import Effect (Effect)
 import Effect.Exception (Error)
 import Foreign.Object (Object)
 import Foreign.Object as Object
-import Node.Buffer.Immutable (ImmutableBuffer)
-import Node.Buffer.Immutable as ImmutableBuffer
-import Node.Encoding (Encoding(..))
 import Node.Platform (Platform(..))
 import Node.Process as Process
-import Node.Stream (Duplex)
 import Prim.Row as Row
 import Record as Record
 import Type.Proxy (Proxy)
 import Unsafe.Coerce (unsafeCoerce)
-
-utf8 :: { toString :: ImmutableBuffer -> String, toBuffer :: String -> ImmutableBuffer }
-utf8 = { toString, toBuffer }
-  where
-  toString = ImmutableBuffer.toString UTF8
-  toBuffer = flip ImmutableBuffer.fromString UTF8
 
 newtype CustomError :: forall k. k -> Type
 newtype CustomError rows = CustomError Error
@@ -80,5 +70,3 @@ envKey' env key
   | Process.platform == Just Win32 =
       findMapWithIndex (\k v -> v <$ guard (String.toUpper k == String.toUpper key)) env
   | otherwise = Object.lookup key env
-
-foreign import newPassThroughStream :: Effect Duplex

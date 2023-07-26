@@ -10,18 +10,16 @@ import Data.Array as Array
 import Data.Either (Either(..))
 import Data.Int (toNumber)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
-import Data.Nullable (Nullable, toMaybe)
 import Data.Number (infinity)
 import Effect (Effect)
-import Effect.Aff (Aff, Error, error, makeAff, nonCanceler)
+import Effect.Aff (Aff, Error, effectCanceler, error, makeAff)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
-import Effect.Uncurried (EffectFn1, EffectFn3, mkEffectFn1, runEffectFn3)
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
-import Node.Buffer.Immutable (ImmutableBuffer)
-import Node.Library.Execa.Utils (newPassThroughStream)
-import Node.Stream (Readable, Writable, Duplex, onData)
+import Node.EventEmitter (on)
+import Node.Stream (Duplex, Readable, dataH, newPassThrough)
+import Node.Stream as Stream
 import Unsafe.Coerce (unsafeCoerce)
 
 type Interface =
@@ -34,7 +32,7 @@ getStreamBuffer
   :: forall r
    . Readable r
   -> { maxBuffer :: Maybe Number }
-  -> Aff { buffer :: ImmutableBuffer, inputError :: Maybe Error }
+  -> Aff { buffer :: Buffer, inputError :: Maybe Error }
 getStreamBuffer inputStream initialOptions = do
   let options = { maxBuffer: fromMaybe infinity initialOptions.maxBuffer }
   interface <- liftEffect bufferStream
@@ -43,23 +41,23 @@ getStreamBuffer inputStream initialOptions = do
   -- fails or not. It also destroys the input stream if an error occurs
   -- but we'll handle that outside of this function.
   makeAff \cb -> do
-    runEffectFn3 pipeline inputStream interface.stream $ mkEffectFn1 \err -> do
+    Stream.pipeline inputStream [] interface.stream \err -> do
       bufferedData <- interface.getBufferedValue
-      buff <- Buffer.unsafeFreeze bufferedData
-      cb $ Right { buffer: buff, inputError: toMaybe err }
-    onData interface.stream \_ -> do
+      cb $ Right { buffer: bufferedData, inputError: err }
+    rmListener <- interface.stream # on dataH \_ -> do
       bufferedLen <- interface.getBufferedLength
       when (bufferedLen > options.maxBuffer) do
         bufferedData <- interface.getBufferedValue
-        buff <- Buffer.unsafeFreeze bufferedData
         cb $ Right
-          { buffer: buff
+          { buffer: bufferedData
           , inputError: Just $ error $ maybe
               ("Max buffer exceeded")
               (\size -> "Max buffer size exceeded. Buffer size was: " <> show size)
               initialOptions.maxBuffer
           }
-    pure nonCanceler
+    pure $ effectCanceler do
+      interface.unsubcribe
+      rmListener
   where
   -- PureScript implementation note:
   -- - object mode == false due to 'buffer' usage
@@ -67,8 +65,8 @@ getStreamBuffer inputStream initialOptions = do
   bufferStream = do
     chunksRef <- Ref.new []
     lengthRef <- Ref.new 0.0
-    stream <- newPassThroughStream
-    onData stream \buf -> do
+    stream <- newPassThrough
+    rmData <- stream # on dataH \buf -> do
       Ref.modify_ (\chunks -> Array.snoc chunks buf) chunksRef
       bufLen <- Buffer.size buf
       Ref.modify_ (_ + (toNumber bufLen)) lengthRef
@@ -85,8 +83,5 @@ getStreamBuffer inputStream initialOptions = do
           Buffer.concat' chunks $ asTooLargeInt len
       , getBufferedLength: Ref.read lengthRef
       , stream
+      , unsubcribe: rmData
       }
-
-foreign import maxBufferLength :: Number
-
-foreign import pipeline :: forall w r. EffectFn3 (Readable w) (Writable r) (EffectFn1 (Nullable Error) Unit) Unit

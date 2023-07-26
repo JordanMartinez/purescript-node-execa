@@ -9,9 +9,8 @@ import Prelude
 import Data.Char (toCharCode)
 import Data.Int as Int
 import Data.String as String
-import Node.Buffer (class MutableBuffer, Buffer, BufferValueType(..), slice, unsafeFreeze)
-import Node.Buffer.Immutable (ImmutableBuffer)
-import Node.Buffer.Internal (read, size)
+import Effect (Effect)
+import Node.Buffer (Buffer, BufferValueType(..), read, size, slice)
 
 stripFinalNewline :: String -> String
 stripFinalNewline s = do
@@ -26,7 +25,7 @@ stripFinalNewline s = do
     "\r" -> sDrop1
     _ -> s
 
-stripFinalNewlineBuf :: forall m. MutableBuffer Buffer m => Buffer -> m ImmutableBuffer
+stripFinalNewlineBuf :: Buffer -> Effect Buffer
 stripFinalNewlineBuf b = do
   len <- size b
   -- PureScript implementation note: 
@@ -43,22 +42,22 @@ stripFinalNewlineBuf b = do
   -- Source (v14): https://nodejs.org/docs/latest-v14.x/api/buffer.html#buffer_new_buffer_blob_sources_options
   case len of
     0 ->
-      unsafeFreeze b
+      pure b
     1 -> do
       lastChar <- read UInt8 (len - 1) b
       if lastChar == charN || lastChar == charR then do
-        unsafeFreeze $ slice 0 (len - 1) b
+        pure $ slice 0 (len - 1) b
       else do
-        unsafeFreeze b
+        pure b
     _ -> do
       lastChar <- read UInt8 (len - 1) b
       sndLastChar <- read UInt8 (len - 2) b
       if lastChar == charN && sndLastChar == charR then do
-        unsafeFreeze $ slice 0 (len - 2) b
+        pure $ slice 0 (len - 2) b
       else if lastChar == charN || lastChar == charR then do
-        unsafeFreeze $ slice 0 (len - 1) b
+        pure $ slice 0 (len - 1) b
       else do
-        unsafeFreeze b
+        pure b
   where
   charN = Int.toNumber $ toCharCode '\n'
   charR = Int.toNumber $ toCharCode '\r'
