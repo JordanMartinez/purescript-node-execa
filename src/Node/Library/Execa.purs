@@ -272,7 +272,7 @@ type ExecaProcess =
       , writeUtf8 :: String -> Aff Unit
       , writeUtf8End :: String -> Aff Unit
       , end :: Aff Unit
-      , shareParentProcessStdin :: Aff Unit
+      , pipeFromParentProcessStdin :: Aff Unit
       }
   , stdout ::
       { stream :: Readable ()
@@ -496,7 +496,7 @@ execa file args buildOptions = do
             void $ Stream.end (CP.stdin spawned)
         , end: liftEffect do
             void $ Stream.end (CP.stdin spawned)
-        , shareParentProcessStdin: liftEffect do
+        , pipeFromParentProcessStdin: liftEffect do
             void $ Stream.pipe Process.stdin (CP.stdin spawned)
         }
     , stdout:
