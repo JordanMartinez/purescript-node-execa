@@ -238,6 +238,8 @@ handleArguments file args initOptions = do
 -- | Re-exposes most of the bindings for `ChildProcess`.
 -- | In addition exposes, the following:
 -- | - `getResult` - gets the result of the process
+-- | - `getResult' \pid -> ...` - Runs the hook after process spawns but before it ends
+-- |       and gets the result of the process.
 -- | - `cancel` - kill the child process, but indicate it was cancelled rather than killed in the error message
 -- | - `killForced*` - kills the child process with the given signal or SIGTERM if not defined. If child is still alive after timeout, sends `SIGKILL` to child.
 -- | - Convenience functions for `stdin`/`stdout`/`stderr`
@@ -304,10 +306,10 @@ type ExecaSuccess =
 -- | spawned <- execa "git checkout -b my-branch" (_
 -- |    { cwd = Just $ Path.concat [ "some", "other", "directory"]
 -- |    })
--- | spawned.getResult
--- |
--- | spawned2 <- execa "git checkout -b my-branch" identity
--- | spawned2.result
+-- | result <- spawned2.getResult
+-- | case result.exit of
+-- |   Normally 0 -> ...
+-- |   _ -> ...
 -- | ```
 execa :: String -> Array String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaProcess
 execa file args buildOptions = do
@@ -634,6 +636,15 @@ defaultExecaSyncOptions =
 -- |
 -- | execaSync "jq" [ "-M", "path/to/some/file.json" ] identity
 -- | ```
+-- |
+-- | To get the result, use `_.getResult`
+-- | ```
+-- | git <- execaSync "git checkout -b my-branch" identity
+-- | result <- git.getResult
+-- | case result.exit of
+-- |   Normally 0 -> ...
+-- |   _ -> ...
+-- | ```
 execaSync :: String -> Array String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect ExecaResult
 execaSync file args buildOptions = do
   let options = buildOptions defaultExecaSyncOptions
@@ -885,6 +896,15 @@ mkExecaResult r =
 -- |
 -- | execaCommand "git checkout -b my-branch" identity
 -- | ```
+-- |
+-- | To get the result, use `_.getResult`
+-- | ```
+-- | git <- execaCommand "git checkout -b my-branch" identity
+-- | result <- git.getResult
+-- | case result.exit of
+-- |   Normally 0 -> ...
+-- |   _ -> ...
+-- | ```
 execaCommand :: String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaProcess
 execaCommand s buildOptions = do
   case parseCommand s of
@@ -903,6 +923,15 @@ execaCommand s buildOptions = do
 -- |    })
 -- |
 -- | execaCommandSync "git checkout -b my-branch" identity
+-- | ```
+-- |
+-- | To get the result, use `_.getResult`
+-- | ```
+-- | git <- execaCommandSync "git checkout -b my-branch" identity
+-- | result <- git.getResult
+-- | case result.exit of
+-- |   Normally 0 -> ...
+-- |   _ -> ...
 -- | ```
 execaCommandSync :: String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect ExecaResult
 execaCommandSync s buildOptions = do
