@@ -356,14 +356,6 @@ execa file args buildOptions = do
         Ref.write true canceledRef
 
   let
-    processFinishedFiber :: Aff Exit
-    processFinishedFiber = makeAff \done -> do
-      spawned # once_ CP.exitH \exitResult -> do
-        clearKillOnTimeout
-        done $ Right exitResult
-      pure nonCanceler
-
-  let
     mkStdIoFiber
       :: Readable ()
       -> Aff (Fiber { text :: String, error :: Maybe Error })
@@ -385,6 +377,8 @@ execa file args buildOptions = do
       res <- joinFiber processSpawnedFiber
       case res of
         Left err -> liftEffect do
+          -- If the process fails to spawn, an `exit` event will not be emitted.
+          -- So, get that information via `exitCode`/`signalCode` and combine here.
           let gotENOENT = SystemError.code err == "ENOENT"
           unfixedExitCode' <- CP.exitCode spawned
           signalCode' <- CP.signalCode spawned
@@ -455,6 +449,14 @@ execa file args buildOptions = do
           -- Setup fibers to get stdout/stderr
           stdoutFiber <- mkStdIoFiber (CP.stdout spawned)
           stderrFiber <- mkStdIoFiber (CP.stderr spawned)
+
+          let
+            processFinishedFiber :: Aff Exit
+            processFinishedFiber = makeAff \done -> do
+              spawned # once_ CP.exitH \exitResult -> do
+                clearKillOnTimeout
+                done $ Right exitResult
+              pure nonCanceler
 
           -- now wait for the result
           result <- sequential $ { exit: _, stdout: _, stderr: _ }
