@@ -283,14 +283,6 @@ type ExecaProcess =
       }
   }
 
-type ExecaSuccess =
-  { command :: String
-  , escapedCommand :: String
-  , exitCode :: Int
-  , stderr :: String
-  , stdout :: String
-  }
-
 -- | Replacement for `childProcess.spawn`. Since this is asynchronous,
 -- | the returned value will not provide any results until one calls `spawned.getResult`:
 -- | `execa ... >>= \spawned -> spawned.getResult`. 
