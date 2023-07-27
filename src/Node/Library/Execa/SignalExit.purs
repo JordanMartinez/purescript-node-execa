@@ -14,7 +14,6 @@ import Data.Foldable (traverse_)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Monoid (guard)
 import Data.Nullable (Nullable, notNull, null, toMaybe, toNullable)
-import Data.Posix (Pid)
 import Data.Set (Set)
 import Data.Set as Set
 import Data.Traversable (for)
@@ -23,10 +22,12 @@ import Effect.Exception (try)
 import Effect.Ref (Ref)
 import Effect.Ref as Ref
 import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, mkEffectFn3, runEffectFn1, runEffectFn2, runEffectFn3)
-import Node.EventEmitter (EventEmitter, EventHandle(..), on, unsafeEmitFn)
+import Node.EventEmitter (EventEmitter, EventHandle(..), listenerCount, on, unsafeEmitFn)
 import Node.EventEmitter as EventEmitter
 import Node.Platform (Platform(..))
+import Node.Process (Process, mkSignalH', process)
 import Node.Process as Process
+import Unsafe.Coerce (unsafeCoerce)
 
 foreign import unsafeProcessHasProp :: EffectFn1 String Boolean
 foreign import unsafeReadProcessProp :: forall a. EffectFn1 String a
@@ -36,12 +37,10 @@ foreign import data ProcessEmitFn :: Type
 foreign import data ProcessReallyExitFn :: Type
 foreign import processCallFn :: EffectFn2 ProcessReallyExitFn (Nullable Int) Unit
 
-foreign import processOn :: forall cb. EffectFn2 String cb Unit
-foreign import processOff :: forall cb. EffectFn2 String cb Unit
-foreign import processKill :: EffectFn2 Pid String Unit
-foreign import processListenersLength :: EffectFn1 String Int
 foreign import customProcessEmit :: EffectFn3 (EffectFn1 ProcessEmitFn Boolean) String (Nullable Int) Boolean -> EffectFn2 String (Nullable Int) Boolean
-foreign import processExitCode :: Effect (Nullable Int)
+
+processToEventEmitter :: Process -> EventEmitter
+processToEventEmitter = unsafeCoerce
 
 isWin :: Boolean
 isWin = Just Win32 == Process.platform
@@ -148,9 +147,9 @@ onExit' cb options = do
       -- for that to occur.
       signalListeners <- for signals \sig -> map hush $ try do
         let listener = mkListener sig countRef
-        runEffectFn2 processOn sig listener
+        rm <- process # on (mkSignalH' sig) listener
         pure $ void $ try do
-          runEffectFn2 processOff sig listener
+          rm
       Ref.write signalListeners signalListenersRef
       runEffectFn2 unsafeWriteProcessProp "emit" processEmitFn
       runEffectFn2 unsafeWriteProcessProp "reallyExit" processReallyExitFn
@@ -158,7 +157,7 @@ onExit' cb options = do
   -- Good
   mkListener :: String -> Ref Int -> Effect Unit
   mkListener sig countRef = do
-    listenersLen <- runEffectFn1 processListenersLength sig
+    listenersLen <- listenerCount (processToEventEmitter process) sig
     count <- Ref.read countRef
     when (listenersLen == count) do
       unload
@@ -167,7 +166,7 @@ onExit' cb options = do
       -- "SIGHUP" throws an `ENOSYS` error on Windows,
       -- so use a supported signal instead
       let sig' = if isWin && sig == "SIGHUP" then "SIGINT" else sig
-      runEffectFn2 processKill Process.pid sig'
+      Process.killStr Process.pid sig'
 
   processReallyExitFn = mkEffectFn1 \(code :: Nullable Int) -> do
     { emitter
@@ -183,9 +182,10 @@ onExit' cb options = do
     { originalProcessEmit } <- getGlobalRecOnProcessObject
     if ev == exitEvent then do
       exitCode <- case toMaybe arg of
-        Nothing -> processExitCode
+        Nothing ->
+          map toNullable $ Process.getExitCode
         Just exitCode' -> do
-          runEffectFn2 unsafeWriteProcessProp exitEvent exitCode'
+          Process.setExitCode exitCode'
           pure $ notNull exitCode'
 
       ret <- runEffectFn1 runOriginalProcessEmit originalProcessEmit
