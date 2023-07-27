@@ -249,23 +249,20 @@ handleArguments file args initOptions = do
 -- |     - `stdin.end` - End the child process' `stdin`
 type ExecaProcess =
   { cancel :: Aff Unit
+  , getResult :: Aff ExecaResult
+  , getResult' :: (Pid -> Aff Unit) -> Aff ExecaResult
   , unsafeChannelRef :: Aff Unit
   , unsafeChannelUnref :: Aff Unit
   , connected :: Aff Boolean
   , disconnect :: Aff Unit
-  , exitCode :: Aff (Maybe Int)
   , kill :: Aff Boolean
   , killForced :: Milliseconds -> Aff Boolean
   , killForcedWithSignal :: KillSignal -> Milliseconds -> Aff Boolean
   , killWithSignal :: KillSignal -> Aff Boolean
   , killed :: Aff Boolean
   , childProcess :: ChildProcess
-  , pid :: Aff (Maybe Pid)
-  , pidExists :: Aff Boolean
   , ref :: Aff Unit
-  , getResult :: Aff ExecaResult
-  , getResult' :: (Pid -> Aff Unit) -> Aff ExecaResult
-  , signalCode :: Aff (Maybe String)
+  , unref :: Aff Unit
   , spawnArgs :: Array String
   , spawnFile :: String
   , waitSpawned :: Aff (Either SystemError Pid)
@@ -284,8 +281,6 @@ type ExecaProcess =
       { stream :: Readable ()
       , pipeToParentStderr :: Aff Unit
       }
-  , stdio :: Array StdIO
-  , unref :: Aff Unit
   }
 
 type ExecaSuccess =
@@ -498,11 +493,13 @@ execa file args buildOptions = do
               }
 
   pure
-    { unsafeChannelRef: liftEffect $ Unsafe.unsafeChannelRef $ CP.toUnsafeChildProcess spawned
+    { cancel
+    , getResult: mainFiber Nothing
+    , getResult': \cb -> mainFiber (Just cb)
+    , unsafeChannelRef: liftEffect $ Unsafe.unsafeChannelRef $ CP.toUnsafeChildProcess spawned
     , unsafeChannelUnref: liftEffect $ Unsafe.unsafeChannelUnref $ CP.toUnsafeChildProcess spawned
     , connected: liftEffect $ CP.connected spawned
     , disconnect: liftEffect $ CP.disconnect spawned
-    , exitCode: liftEffect $ CP.exitCode spawned
     , kill: liftEffect $ execaKill (Just $ stringSignal "SIGTERM") Nothing spawned
     , killWithSignal: \signal -> liftEffect do
         execaKill (Just signal) Nothing spawned
@@ -510,12 +507,9 @@ execa file args buildOptions = do
         execaKill (Just $ stringSignal "SIGTERM") (Just forceKillAfterTimeout) spawned
     , killForcedWithSignal: \signal forceKillAfterTimeout -> liftEffect do
         execaKill (Just signal) (Just forceKillAfterTimeout) spawned
-    , pidExists: liftEffect $ CP.pidExists spawned
     , killed: liftEffect $ CP.killed spawned
-    , pid: liftEffect $ CP.pid spawned
     , unref: liftEffect $ CP.unref spawned
     , ref: liftEffect $ CP.ref spawned
-    , signalCode: liftEffect $ CP.signalCode spawned
     , spawnArgs: CP.spawnArgs spawned
     , spawnFile: CP.spawnFile spawned
     , childProcess: spawned
@@ -543,10 +537,6 @@ execa file args buildOptions = do
         , pipeToParentStderr: liftEffect do
             void $ Stream.pipe (CP.stderr spawned) Process.stderr
         }
-    , stdio: CP.stdio spawned
-    , cancel
-    , getResult: mainFiber Nothing
-    , getResult': \cb -> mainFiber (Just cb)
     , waitSpawned: do
         mbPid <- liftEffect $ pid spawned
         case mbPid of
