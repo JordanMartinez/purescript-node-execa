@@ -446,21 +446,19 @@ execa file args buildOptions = do
           -- allow end-user to use child process before code is finished.
           for_ postSpawn \callback -> callback pid
 
+          processFinishedFiber :: Fiber Exit <- forkAff $ makeAff \done -> do
+            spawned # once_ CP.exitH \exitResult -> do
+              clearKillOnTimeout
+              done $ Right exitResult
+            pure nonCanceler
+
           -- Setup fibers to get stdout/stderr
           stdoutFiber <- mkStdIoFiber (CP.stdout spawned)
           stderrFiber <- mkStdIoFiber (CP.stderr spawned)
 
-          let
-            processFinishedFiber :: Aff Exit
-            processFinishedFiber = makeAff \done -> do
-              spawned # once_ CP.exitH \exitResult -> do
-                clearKillOnTimeout
-                done $ Right exitResult
-              pure nonCanceler
-
           -- now wait for the result
           result <- sequential $ { exit: _, stdout: _, stderr: _ }
-            <$> (parallel $ processFinishedFiber)
+            <$> (parallel $ joinFiber processFinishedFiber)
             <*> (parallel $ joinFiber stdoutFiber)
             <*> (parallel $ joinFiber stderrFiber)
 
