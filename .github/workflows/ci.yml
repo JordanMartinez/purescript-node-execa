@@ -22,7 +22,7 @@ jobs:
       - name: Set up Node toolchain
         uses: actions/setup-node@v3
         with:
-          node-version: "16"
+          node-version: "lts/*"
 
       - name: Cache NPM dependencies
         uses: actions/cache@v3

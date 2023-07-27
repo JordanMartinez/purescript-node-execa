@@ -42,7 +42,7 @@ import Foreign.Object (Object)
 import Foreign.Object as Object
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
-import Node.ChildProcess (ChildProcess, kill', pid)
+import Node.ChildProcess (ChildProcess)
 import Node.ChildProcess as CP
 import Node.ChildProcess.Aff (waitSpawned)
 import Node.ChildProcess.Types (Exit(..), KillSignal, StdIO, customShell, fromKillSignal, fromKillSignal', stringSignal)
@@ -62,6 +62,7 @@ import Node.Process as Process
 import Node.Stream (Readable, Writable, destroy)
 import Node.Stream as Stream
 import Node.UnsafeChildProcess.Unsafe as Unsafe
+import Partial.Unsafe (unsafeCrashWith)
 import Record as Record
 import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
@@ -321,12 +322,7 @@ execa file args buildOptions = do
         }
     )
   stdinErrRef <- liftEffect $ Ref.new Nothing
-  timeoutRef <- liftEffect $ Ref.new Nothing
   canceledRef <- liftEffect $ Ref.new false
-  clearKillOnTimeoutRef <- liftEffect $ Ref.new (mempty :: Effect Unit)
-  let
-    clearKillOnTimeout :: Effect Unit
-    clearKillOnTimeout = join $ Ref.read clearKillOnTimeoutRef
   spawnedFiber <- suspendAff $ waitSpawned spawned
 
   processSpawnedFiber <- do
@@ -338,7 +334,7 @@ execa file args buildOptions = do
         ( do
             liftEffect do
               removal <- SignalExit.onExit \_ _ -> do
-                void $ execaKill (Just $ stringSignal "SIGTERM") Nothing spawned
+                void $ CP.kill' (stringSignal "SIGTERM") spawned
               Ref.write (Just removal) removeHandlerRef
             joinFiber spawnedFiber
         )
@@ -350,70 +346,61 @@ execa file args buildOptions = do
   let
     cancel :: Aff Unit
     cancel = liftEffect do
-      killSucceeded <- execaKill (Just $ stringSignal "SIGTERM") Nothing spawned
+      killSucceeded <- CP.kill' (stringSignal "SIGTERM") spawned
       when killSucceeded do
         Ref.write true canceledRef
 
   let
-    processFinishedFiber :: Aff Exit
-    processFinishedFiber = makeAff \done -> do
-      spawned # once_ CP.exitH \exitResult -> do
-        clearKillOnTimeout
-        done $ Right exitResult
-      pure nonCanceler
-
-  let
-    mkStdIoFiber
-      :: Readable ()
-      -> Aff (Fiber { text :: String, error :: Maybe Error })
-    mkStdIoFiber stream = forkAff do
-      streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
-      text <- liftEffect do
-        buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } streamResult.buffer
-        text <- Buffer.toString parsed.options.encoding buf
-        when (isJust streamResult.inputError) do
-          destroy stream
-        pure text
-      pure { text, error: streamResult.inputError }
-
-  let
     mainFiber
       :: Maybe (Pid -> Aff Unit)
-      -> Aff _
+      -> Aff ExecaResult
     mainFiber postSpawn = do
       res <- joinFiber processSpawnedFiber
       case res of
-        Left err -> do
-          exit <- processFinishedFiber
+        Left err -> liftEffect do
+          -- If the process fails to spawn, an `exit` event will not be emitted.
+          -- So, get that information via `exitCode`/`signalCode` and combine here.
+          let gotENOENT = SystemError.code err == "ENOENT"
+          unfixedExitCode' <- CP.exitCode spawned
+          signalCode' <- CP.signalCode spawned
           let
-            exitResult :: { exit :: Maybe Int, signal :: Maybe KillSignal }
-            exitResult = case exit of
-              Normally i -> { exit: Just i, signal: Nothing }
-              BySignal s -> { exit: Nothing, signal: Just s }
-          liftEffect do
-            canceled <- Ref.read canceledRef
-            killed' <- CP.killed spawned
-            timeout <- Ref.read timeoutRef
-            pure $
-              mkExecaResult
-                { spawnError: Just err
-                , pid: Nothing
-                , stdinErr: Nothing
-                , stdoutErr: Nothing
-                , stderrErr: Nothing
-                , exitStatus: exit
-                , exitCode: exitResult.exit
-                , signal: exitResult.signal <|> timeout
-                , stdout: ""
-                , stderr: ""
-                , command
-                , escapedCommand
-                , execaOptions: parsed.options
-                , timedOut: false
-                , canceled
-                , killed: killed'
-                }
+            exitCode' = case unfixedExitCode' of
+              Just _ | gotENOENT -> Just 127
+              x -> x
+
+            exitStatus :: Exit
+            exitStatus = case exitCode', signalCode' of
+              Just i, _ -> Normally i
+              _, Just s -> BySignal $ stringSignal s
+              _, _ -> unsafeCrashWith $ "Impossible: either exit or signal should be non-null"
+          canceled <- Ref.read canceledRef
+          killed' <- CP.killed spawned
+          pure $
+            mkExecaResult
+              { spawnError: Just err
+              , pid: Nothing
+              , stdinErr: Nothing
+              , stdoutErr: Nothing
+              , stderrErr: Nothing
+              , exitStatus
+              , exitCode: exitCode'
+              , signal: map stringSignal signalCode'
+              , stdout: ""
+              , stderr: ""
+              , command
+              , escapedCommand
+              , execaOptions: parsed.options
+              , timedOut: false
+              , canceled
+              , killed: killed'
+              }
         Right pid -> do
+          timeoutRef <- liftEffect $ Ref.new Nothing
+          clearKillOnTimeoutRef <- liftEffect $ Ref.new (mempty :: Effect Unit)
+          let
+            clearKillOnTimeout :: Effect Unit
+            clearKillOnTimeout = join $ Ref.read clearKillOnTimeoutRef
+
           -- Setup a timeout if there is one.
           -- It'll be cleared when the process finishes.
           void $ forkAff do
@@ -423,7 +410,7 @@ execa file args buildOptions = do
                   tid <- setTimeout ((unsafeCoerce :: Milliseconds -> Int) milliseconds) do
                     killed' <- CP.killed spawned
                     unless killed' do
-                      void $ execaKill (Just signal) Nothing spawned
+                      void $ CP.kill' signal spawned
                       mbPid <- CP.pid spawned
                       for_ mbPid \_ -> do
                         -- stdin/out/err only exist if child process has spawned
@@ -445,13 +432,33 @@ execa file args buildOptions = do
           -- allow end-user to use child process before code is finished.
           for_ postSpawn \callback -> callback pid
 
+          processFinishedFiber :: Fiber Exit <- forkAff $ makeAff \done -> do
+            spawned # once_ CP.exitH \exitResult -> do
+              clearKillOnTimeout
+              done $ Right exitResult
+            pure nonCanceler
+
+          let
+            mkStdIoFiber
+              :: Readable ()
+              -> Aff (Fiber { text :: String, error :: Maybe Error })
+            mkStdIoFiber stream = forkAff do
+              streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
+              text <- liftEffect do
+                buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } streamResult.buffer
+                text <- Buffer.toString parsed.options.encoding buf
+                when (isJust streamResult.inputError) do
+                  destroy stream
+                pure text
+              pure { text, error: streamResult.inputError }
+
           -- Setup fibers to get stdout/stderr
           stdoutFiber <- mkStdIoFiber (CP.stdout spawned)
           stderrFiber <- mkStdIoFiber (CP.stderr spawned)
 
           -- now wait for the result
           result <- sequential $ { exit: _, stdout: _, stderr: _ }
-            <$> (parallel $ processFinishedFiber)
+            <$> (parallel $ joinFiber processFinishedFiber)
             <*> (parallel $ joinFiber stdoutFiber)
             <*> (parallel $ joinFiber stderrFiber)
 
@@ -529,7 +536,7 @@ execa file args buildOptions = do
             void $ Stream.pipe (CP.stderr spawned) Process.stderr
         }
     , waitSpawned: do
-        mbPid <- liftEffect $ pid spawned
+        mbPid <- liftEffect $ CP.pid spawned
         case mbPid of
           Just p -> pure $ Right p
           Nothing -> waitSpawned spawned
@@ -714,7 +721,7 @@ execaKill
 execaKill mbKillSignal forceKillAfterTimeout cp = do
   let
     killSignal = fromMaybe (stringSignal "SIGTERM") mbKillSignal
-  killSignalSucceeded <- kill' killSignal cp
+  killSignalSucceeded <- CP.kill' killSignal cp
   let
     mbTimeout = do
       guard $ isSigTerm killSignal
@@ -722,7 +729,7 @@ execaKill mbKillSignal forceKillAfterTimeout cp = do
       forceKillAfterTimeout
   for_ mbTimeout \(Milliseconds timeout) -> do
     t <- runEffectFn2 setTimeoutImpl (floor timeout) do
-      void $ kill' (stringSignal "SIGKILL") cp
+      void $ CP.kill' (stringSignal "SIGKILL") cp
     t.unref
   pure killSignalSucceeded
   where

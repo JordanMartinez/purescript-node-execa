@@ -41,6 +41,11 @@ spec = describe "execa" do
       case result.exit of
         Normally 0 -> result.stdout `shouldEqual` "test"
         _ -> fail result.message
+  it "ENOENT should produce exit code 127" do
+    result <- _.getResult =<< execa "this-does-not-exist" [] identity
+    case result.exit of
+      Normally 127 -> mempty
+      _ -> fail $ "Should have gotten exit 127. " <> show result
   describe "using sleep files" do
     let
       shellCmd = if isWindows then "pwsh" else "sh"
