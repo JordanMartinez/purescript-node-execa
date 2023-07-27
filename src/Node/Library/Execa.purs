@@ -322,12 +322,7 @@ execa file args buildOptions = do
         }
     )
   stdinErrRef <- liftEffect $ Ref.new Nothing
-  timeoutRef <- liftEffect $ Ref.new Nothing
   canceledRef <- liftEffect $ Ref.new false
-  clearKillOnTimeoutRef <- liftEffect $ Ref.new (mempty :: Effect Unit)
-  let
-    clearKillOnTimeout :: Effect Unit
-    clearKillOnTimeout = join $ Ref.read clearKillOnTimeoutRef
   spawnedFiber <- suspendAff $ waitSpawned spawned
 
   processSpawnedFiber <- do
@@ -394,7 +389,6 @@ execa file args buildOptions = do
               _, _ -> unsafeCrashWith $ "Impossible: either exit or signal should be non-null"
           canceled <- Ref.read canceledRef
           killed' <- CP.killed spawned
-          timeout <- Ref.read timeoutRef
           pure $
             mkExecaResult
               { spawnError: Just err
@@ -404,7 +398,7 @@ execa file args buildOptions = do
               , stderrErr: Nothing
               , exitStatus
               , exitCode: exitCode'
-              , signal: (map stringSignal signalCode') <|> timeout
+              , signal: map stringSignal signalCode'
               , stdout: ""
               , stderr: ""
               , command
@@ -415,6 +409,12 @@ execa file args buildOptions = do
               , killed: killed'
               }
         Right pid -> do
+          timeoutRef <- liftEffect $ Ref.new Nothing
+          clearKillOnTimeoutRef <- liftEffect $ Ref.new (mempty :: Effect Unit)
+          let
+            clearKillOnTimeout :: Effect Unit
+            clearKillOnTimeout = join $ Ref.read clearKillOnTimeoutRef
+
           -- Setup a timeout if there is one.
           -- It'll be cleared when the process finishes.
           void $ forkAff do
