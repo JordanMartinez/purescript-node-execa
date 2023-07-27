@@ -42,7 +42,7 @@ import Foreign.Object (Object)
 import Foreign.Object as Object
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
-import Node.ChildProcess (ChildProcess, kill', pid)
+import Node.ChildProcess (ChildProcess)
 import Node.ChildProcess as CP
 import Node.ChildProcess.Aff (waitSpawned)
 import Node.ChildProcess.Types (Exit(..), KillSignal, StdIO, customShell, fromKillSignal, fromKillSignal', stringSignal)
@@ -529,7 +529,7 @@ execa file args buildOptions = do
             void $ Stream.pipe (CP.stderr spawned) Process.stderr
         }
     , waitSpawned: do
-        mbPid <- liftEffect $ pid spawned
+        mbPid <- liftEffect $ CP.pid spawned
         case mbPid of
           Just p -> pure $ Right p
           Nothing -> waitSpawned spawned
@@ -714,7 +714,7 @@ execaKill
 execaKill mbKillSignal forceKillAfterTimeout cp = do
   let
     killSignal = fromMaybe (stringSignal "SIGTERM") mbKillSignal
-  killSignalSucceeded <- kill' killSignal cp
+  killSignalSucceeded <- CP.kill' killSignal cp
   let
     mbTimeout = do
       guard $ isSigTerm killSignal
@@ -722,7 +722,7 @@ execaKill mbKillSignal forceKillAfterTimeout cp = do
       forceKillAfterTimeout
   for_ mbTimeout \(Milliseconds timeout) -> do
     t <- runEffectFn2 setTimeoutImpl (floor timeout) do
-      void $ kill' (stringSignal "SIGKILL") cp
+      void $ CP.kill' (stringSignal "SIGKILL") cp
     t.unref
   pure killSignalSucceeded
   where
