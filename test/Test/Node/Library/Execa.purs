@@ -2,13 +2,12 @@ module Test.Node.Library.Execa where
 
 import Prelude
 
-import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
 import Effect.Class (liftEffect)
 import Effect.Exception as Exception
 import Node.Buffer as Buffer
-import Node.ChildProcess.Types (Exit(..), fromKillSignal, fromKillSignal', intSignal, stringSignal)
+import Node.ChildProcess.Types (Exit(..), fromKillSignal', intSignal, stringSignal)
 import Node.Encoding (Encoding(..))
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.HumanSignals (signals)
@@ -78,44 +77,44 @@ spec = describe "execa" do
           BySignal sig -> do
             sig `shouldEqual` (stringSignal "SIGTERM")
             result.timedOut `shouldEqual` true
--- describe "execaSync" do
---   describe "`cat` tests" do
---     it "input is file" do
---       result <- liftEffect $ execaSync "cat" [ "test.dhall" ] identity
---       case result of
---         Right r -> r.stdout `shouldContain` "let config ="
---         Left e -> fail e.message
---     itNix "input is buffer" do
---       input <- liftEffect $ Buffer.fromString "test" UTF8
---       result <- liftEffect $ execaSync "cat" [ "-" ] (_ { input = Just input })
---       case result of
---         Right r -> r.stdout `shouldEqual` "test"
---         Left e -> fail e.message
--- describe "execaCommand" do
---   describe "`cat` tests" do
---     it "input is file" do
---       spawned <- execaCommand "cat test.dhall" identity
---       result <- spawned.getResult
---       case result of
---         Right r -> r.stdout `shouldContain` "let config ="
---         Left e -> fail e.message
---     itNix "input is buffer" do
---       spawned <- execaCommand "cat -" identity
---       spawned.stdin.writeUtf8End "test"
---       result <- spawned.getResult
---       case result of
---         Right r -> r.stdout `shouldEqual` "test"
---         Left e -> fail e.message
--- describe "execaCommandSync" do
---   describe "`cat` tests" do
---     it "input is file" do
---       result <- liftEffect $ execaCommandSync "cat test.dhall" identity
---       case result of
---         Right r -> r.stdout `shouldContain` "let config ="
---         Left e -> fail e.message
---     itNix "input is buffer" do
---       input <- liftEffect $ Buffer.fromString "test" UTF8
---       result <- liftEffect $ execaCommandSync "cat" (_ { input = Just input })
---       case result of
---         Right r -> r.stdout `shouldEqual` "test"
---         Left e -> fail e.message
+  describe "execaSync" do
+    describe "`cat` tests" do
+      it "input is file" do
+        result <- liftEffect $ execaSync "cat" [ "test.dhall" ] identity
+        case result.exit of
+          Normally 0 -> result.stdout `shouldContain` "let config ="
+          _ -> fail result.message
+      itNix "input is buffer" do
+        input <- liftEffect $ Buffer.fromString "test" UTF8
+        result <- liftEffect $ execaSync "cat" [ "-" ] (_ { input = Just input })
+        case result.exit of
+          Normally 0 -> result.stdout `shouldEqual` "test"
+          _ -> fail result.message
+  describe "execaCommand" do
+    describe "`cat` tests" do
+      it "input is file" do
+        spawned <- execaCommand "cat test.dhall" identity
+        result <- spawned.getResult
+        case result.exit of
+          Normally 0 -> result.stdout `shouldContain` "let config ="
+          _ -> fail result.message
+      itNix "input is buffer" do
+        spawned <- execaCommand "cat -" identity
+        spawned.stdin.writeUtf8End "test"
+        result <- spawned.getResult
+        case result.exit of
+          Normally 0 -> result.stdout `shouldEqual` "test"
+          _ -> fail result.message
+  describe "execaCommandSync" do
+    describe "`cat` tests" do
+      it "input is file" do
+        result <- liftEffect $ execaCommandSync "cat test.dhall" identity
+        case result.exit of
+          Normally 0 -> result.stdout `shouldContain` "let config ="
+          _ -> fail result.message
+      itNix "input is buffer" do
+        input <- liftEffect $ Buffer.fromString "test" UTF8
+        result <- liftEffect $ execaCommandSync "cat" (_ { input = Just input })
+        case result.exit of
+          Normally 0 -> result.stdout `shouldEqual` "test"
+          _ -> fail result.message

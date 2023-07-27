@@ -29,7 +29,6 @@
   , "partial"
   , "posix-types"
   , "prelude"
-  , "profunctor-lenses"
   , "record"
   , "refs"
   , "safe-coerce"

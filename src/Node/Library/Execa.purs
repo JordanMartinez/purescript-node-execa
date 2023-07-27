@@ -4,14 +4,11 @@
 -- | - `exec`/`execSync` -> `execaCommand`/`execaCommandSync`
 -- | - `fork` - has no equivalent
 module Node.Library.Execa
-  ( ExecaError
-  , ExecaOptions
+  ( ExecaOptions
   , ExecaProcess
-  , AsyncResult
-  , ExecaSuccess
+  , ExecaResult
   , execa
   , ExecaSyncOptions
-  , ExecaSyncResult
   , execaSync
   , execaCommand
   , execaCommandSync
@@ -264,8 +261,8 @@ type ExecaProcess =
   , pid :: Aff (Maybe Pid)
   , pidExists :: Aff Boolean
   , ref :: Aff Unit
-  , getResult :: Aff AsyncResult
-  , getResult' :: (Pid -> Aff Unit) -> Aff AsyncResult
+  , getResult :: Aff ExecaResult
+  , getResult' :: (Pid -> Aff Unit) -> Aff ExecaResult
   , signalCode :: Aff (Maybe String)
   , spawnArgs :: Array String
   , spawnFile :: String
@@ -371,7 +368,7 @@ execa file args buildOptions = do
   let
     processFinishedFiber :: Aff Exit
     processFinishedFiber = makeAff \done -> do
-      spawned # once_ CP.closeH \exitResult -> do
+      spawned # once_ CP.exitH \exitResult -> do
         clearKillOnTimeout
         done $ Right exitResult
       pure nonCanceler
@@ -409,7 +406,7 @@ execa file args buildOptions = do
             killed' <- CP.killed spawned
             timeout <- Ref.read timeoutRef
             pure $
-              mkAsyncResult
+              mkExecaResult
                 { spawnError: Just err
                 , pid: Nothing
                 , stdinErr: Nothing
@@ -479,7 +476,7 @@ execa file args buildOptions = do
               exitResult = case result.exit of
                 Normally i -> { exitCode: Just i, signal: Nothing }
                 BySignal sig -> { exitCode: Nothing, signal: Just sig }
-            pure $ mkAsyncResult
+            pure $ mkExecaResult
               { spawnError: Nothing
               , stdinErr: stdinErr
               , stdoutErr: result.stdout.error
@@ -637,7 +634,7 @@ defaultExecaSyncOptions =
 -- |
 -- | execaSync "jq" [ "-M", "path/to/some/file.json" ] identity
 -- | ```
-execaSync :: String -> Array String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Either ExecaError ExecaSyncResult)
+execaSync :: String -> Array String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect ExecaResult
 execaSync file args buildOptions = do
   let options = buildOptions defaultExecaSyncOptions
   parsed <- handleArguments file args $ Record.delete (Proxy :: _ "input") options
@@ -674,42 +671,24 @@ execaSync file args buildOptions = do
     resultExitCode = case result.exitStatus of
       Normally n -> Just n
       _ -> Nothing
-    hasNonZeroExit = case result.exitStatus of
-      Normally n | n /= 0 -> true
-      _ -> false
-  if isJust result.error || hasNonZeroExit || isJust resultSignal then
-    pure $ Left $ mkError
-      { command
-      , escapedCommand
-      , stdout: stdout'
-      , stderr: stderr'
-      , stdinErr: Nothing
-      , stdoutErr: Nothing
-      , stderrErr: Nothing
-      , error: result.error
-      , signal: resultSignal
-      , exitCode: resultExitCode
-      , execaOptions: parsed.options
-      , timedOut: Just "ETIMEDOUT" == (map SystemError.code result.error)
-      , isCanceled: false
-      , killed: isJust resultSignal
-      }
-  else do
-    pure $ Right
-      { command
-      , escapedCommand
-      , stdout: stdout'
-      , stderr: stderr'
-      , exitCode: 0
-      }
-
-type ExecaSyncResult =
-  { command :: String
-  , escapedCommand :: String
-  , exitCode :: Int
-  , stdout :: String
-  , stderr :: String
-  }
+  pure $ mkExecaResult
+    { command
+    , escapedCommand
+    , stdout: stdout'
+    , stderr: stderr'
+    , pid: Just result.pid
+    , exitStatus: result.exitStatus
+    , exitCode: resultExitCode
+    , spawnError: result.error
+    , signal: resultSignal
+    , execaOptions: parsed.options
+    , timedOut: Just "ETIMEDOUT" == (map SystemError.code result.error)
+    , canceled: false
+    , killed: isJust resultSignal
+    , stdinErr: Nothing
+    , stdoutErr: Nothing
+    , stderrErr: Nothing
+    }
 
 handleOutput :: forall r. { stripFinalNewline :: Boolean | r } -> Buffer -> Effect Buffer
 handleOutput options value
@@ -803,23 +782,7 @@ type ExecaRunOptions =
   , windowsHide :: Boolean
   }
 
-type ExecaError =
-  { originalMessage :: Maybe String
-  , message :: String
-  , shortMessage :: String
-  , escapedCommand :: String
-  , exitCode :: Maybe Int
-  , signal :: Maybe KillSignal
-  , signalDescription :: Maybe String
-  , stdout :: String
-  , stderr :: String
-  , failed :: Boolean
-  , timedOut :: Boolean
-  , isCanceled :: Boolean
-  , killed :: Boolean
-  }
-
-type AsyncResult =
+type ExecaResult =
   { originalMessage :: Maybe String
   , message :: String
   , shortMessage :: String
@@ -839,7 +802,7 @@ type AsyncResult =
   , killed :: Boolean
   }
 
-mkAsyncResult
+mkExecaResult
   :: { spawnError :: Maybe SystemError
      , stdinErr :: Maybe Exception.Error
      , stdoutErr :: Maybe Exception.Error
@@ -857,8 +820,8 @@ mkAsyncResult
      , canceled :: Boolean
      , killed :: Boolean
      }
-  -> AsyncResult
-mkAsyncResult r =
+  -> ExecaResult
+mkExecaResult r =
   { originalMessage: (r.spawnError <#> SystemError.message) <|> (map Exception.message $ r.stdinErr <|> r.stdoutErr <|> r.stderrErr)
   , message
   , shortMessage
@@ -913,72 +876,6 @@ mkAsyncResult r =
     , r.stdout
     ]
 
-mkError
-  :: { stdout :: String
-     , stderr :: String
-     , error :: Maybe SystemError
-     , stdinErr :: Maybe Exception.Error
-     , stdoutErr :: Maybe Exception.Error
-     , stderrErr :: Maybe Exception.Error
-     , signal :: Maybe KillSignal
-     , exitCode :: Maybe Int
-     , command :: String
-     , escapedCommand :: String
-     , execaOptions :: ExecaRunOptions
-     , timedOut :: Boolean
-     , isCanceled :: Boolean
-     , killed :: Boolean
-     }
-  -> ExecaError
-mkError r =
-  { originalMessage: (r.error <#> SystemError.message) <|> (map Exception.message $ r.stdinErr <|> r.stdoutErr <|> r.stderrErr)
-  , message
-  , shortMessage
-  , escapedCommand: r.escapedCommand
-  , exitCode: r.exitCode
-  , signal: r.signal
-  , signalDescription
-  , stdout: r.stdout
-  , stderr: r.stderr
-  , failed: true
-  , timedOut: r.timedOut
-  , isCanceled: r.isCanceled
-  , killed: r.killed && not r.timedOut
-  }
-  where
-  signalDescription = r.signal >>= fromKillSignal >>> case _ of
-    Left i -> map _.description $ Map.lookup i signals.byNumber
-    Right s -> map _.description $ Object.lookup s signals.byString
-  errorCode = map SystemError.code r.error
-  prefix
-    | r.timedOut
-    , Just timeout <- r.execaOptions.timeout =
-        "timed out after " <> show timeout <> "milliseconds"
-    | r.isCanceled =
-        "was canceled"
-    | Just code <- errorCode =
-        "failed with " <> code
-    | Just signal' <- r.signal
-    , Just description <- signalDescription =
-        "was killed with " <> (either show show $ fromKillSignal signal') <> " (" <> description <> ")"
-    | Just exit <- r.exitCode =
-        "failed with exit code " <> show exit
-    | Just err <- r.stdinErr =
-        "had error in `stdin`: " <> Exception.message err
-    | Just err <- r.stdoutErr =
-        "had error in `stdout`: " <> Exception.message err
-    | Just err <- r.stderrErr =
-        "had error in `stderr`: " <> Exception.message err
-    | otherwise =
-        "failed"
-  execaMessage = "Command " <> prefix <> ": " <> r.command
-  shortMessage = execaMessage <> (maybe "" (append "\n") $ map SystemError.message r.error)
-  message = Array.intercalate "\n"
-    [ shortMessage
-    , r.stderr
-    , r.stdout
-    ]
-
 -- | Replacement for `childProcess.exec`. Override the default options
 -- | using record update syntax. If defaults are good enough, just use `identity`.
 -- | ```
@@ -1007,7 +904,7 @@ execaCommand s buildOptions = do
 -- |
 -- | execaCommandSync "git checkout -b my-branch" identity
 -- | ```
-execaCommandSync :: String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect (Either ExecaError ExecaSyncResult)
+execaCommandSync :: String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect ExecaResult
 execaCommandSync s buildOptions = do
   case parseCommand s of
     Just { file, args } ->
