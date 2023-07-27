@@ -266,17 +266,17 @@ getGlobalRecOnProcessObject =
 -- state from which it is not safe to try and enter JS
 -- listeners.
 signals :: Array String
-signals = normal <> windows <> linux
+signals = normal <> nonWindows <> linux
   where
   normal =
-    [ "SIGABRT"
-    , "SIGALRM"
-    , "SIGHUP"
+    [ "SIGHUP"
     , "SIGINT"
     , "SIGTERM"
     ]
-  windows = guard isWin
-    [ "SIGVTALRM"
+  nonWindows = guard (not isWin)
+    [ "SIGABRT"
+    , "SIGALRM"
+    , "SIGVTALRM"
     , "SIGXCPU"
     , "SIGXFSZ"
     , "SIGUSR2"
@@ -297,5 +297,4 @@ signals = normal <> windows <> linux
     , "SIGPOLL"
     , "SIGPWR"
     , "SIGSTKFLT"
-    , "SIGUNUSED"
     ]
