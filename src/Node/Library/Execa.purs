@@ -62,6 +62,7 @@ import Node.Process as Process
 import Node.Stream (Readable, Writable, destroy)
 import Node.Stream as Stream
 import Node.UnsafeChildProcess.Unsafe as Unsafe
+import Partial.Unsafe (unsafeCrashWith)
 import Record as Record
 import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
@@ -383,36 +384,42 @@ execa file args buildOptions = do
     mainFiber postSpawn = do
       res <- joinFiber processSpawnedFiber
       case res of
-        Left err -> do
-          exit <- processFinishedFiber
+        Left err -> liftEffect do
+          let gotENOENT = SystemError.code err == "ENOENT"
+          unfixedExitCode' <- CP.exitCode spawned
+          signalCode' <- CP.signalCode spawned
           let
-            exitResult :: { exit :: Maybe Int, signal :: Maybe KillSignal }
-            exitResult = case exit of
-              Normally i -> { exit: Just i, signal: Nothing }
-              BySignal s -> { exit: Nothing, signal: Just s }
-          liftEffect do
-            canceled <- Ref.read canceledRef
-            killed' <- CP.killed spawned
-            timeout <- Ref.read timeoutRef
-            pure $
-              mkExecaResult
-                { spawnError: Just err
-                , pid: Nothing
-                , stdinErr: Nothing
-                , stdoutErr: Nothing
-                , stderrErr: Nothing
-                , exitStatus: exit
-                , exitCode: exitResult.exit
-                , signal: exitResult.signal <|> timeout
-                , stdout: ""
-                , stderr: ""
-                , command
-                , escapedCommand
-                , execaOptions: parsed.options
-                , timedOut: false
-                , canceled
-                , killed: killed'
-                }
+            exitCode' = case unfixedExitCode' of
+              Just _ | gotENOENT -> Just 127
+              x -> x
+
+            exitStatus :: Exit
+            exitStatus = case exitCode', signalCode' of
+              Just i, _ -> Normally i
+              _, Just s -> BySignal $ stringSignal s
+              _, _ -> unsafeCrashWith $ "Impossible: either exit or signal should be non-null"
+          canceled <- Ref.read canceledRef
+          killed' <- CP.killed spawned
+          timeout <- Ref.read timeoutRef
+          pure $
+            mkExecaResult
+              { spawnError: Just err
+              , pid: Nothing
+              , stdinErr: Nothing
+              , stdoutErr: Nothing
+              , stderrErr: Nothing
+              , exitStatus
+              , exitCode: exitCode'
+              , signal: (map stringSignal signalCode') <|> timeout
+              , stdout: ""
+              , stderr: ""
+              , command
+              , escapedCommand
+              , execaOptions: parsed.options
+              , timedOut: false
+              , canceled
+              , killed: killed'
+              }
         Right pid -> do
           -- Setup a timeout if there is one.
           -- It'll be cleared when the process finishes.
