@@ -500,9 +500,8 @@ execa file args buildOptions = do
     , unsafeChannelUnref: liftEffect $ Unsafe.unsafeChannelUnref $ CP.toUnsafeChildProcess spawned
     , connected: liftEffect $ CP.connected spawned
     , disconnect: liftEffect $ CP.disconnect spawned
-    , kill: liftEffect $ execaKill (Just $ stringSignal "SIGTERM") Nothing spawned
-    , killWithSignal: \signal -> liftEffect do
-        execaKill (Just signal) Nothing spawned
+    , kill: liftEffect $ CP.kill spawned
+    , killWithSignal: \signal -> liftEffect $ CP.kill' signal spawned
     , killForced: \forceKillAfterTimeout -> liftEffect do
         execaKill (Just $ stringSignal "SIGTERM") (Just forceKillAfterTimeout) spawned
     , killForcedWithSignal: \signal forceKillAfterTimeout -> liftEffect do
