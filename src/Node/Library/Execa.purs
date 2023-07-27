@@ -351,20 +351,6 @@ execa file args buildOptions = do
         Ref.write true canceledRef
 
   let
-    mkStdIoFiber
-      :: Readable ()
-      -> Aff (Fiber { text :: String, error :: Maybe Error })
-    mkStdIoFiber stream = forkAff do
-      streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
-      text <- liftEffect do
-        buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } streamResult.buffer
-        text <- Buffer.toString parsed.options.encoding buf
-        when (isJust streamResult.inputError) do
-          destroy stream
-        pure text
-      pure { text, error: streamResult.inputError }
-
-  let
     mainFiber
       :: Maybe (Pid -> Aff Unit)
       -> Aff _
@@ -451,6 +437,20 @@ execa file args buildOptions = do
               clearKillOnTimeout
               done $ Right exitResult
             pure nonCanceler
+
+          let
+            mkStdIoFiber
+              :: Readable ()
+              -> Aff (Fiber { text :: String, error :: Maybe Error })
+            mkStdIoFiber stream = forkAff do
+              streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
+              text <- liftEffect do
+                buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } streamResult.buffer
+                text <- Buffer.toString parsed.options.encoding buf
+                when (isJust streamResult.inputError) do
+                  destroy stream
+                pure text
+              pure { text, error: streamResult.inputError }
 
           -- Setup fibers to get stdout/stderr
           stdoutFiber <- mkStdIoFiber (CP.stdout spawned)
