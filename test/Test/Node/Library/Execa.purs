@@ -73,7 +73,7 @@ spec = describe "execa" do
           (_ { timeout = Just { milliseconds: Milliseconds 400.0, killSignal: stringSignal "SIGTERM" } })
         result <- spawned.getResult
         case result.exit of
-          Normally _ -> fail "Timeout should work"
+          Normally _ -> fail $ "Timeout should work: " <> show result
           BySignal sig -> do
             sig `shouldEqual` (stringSignal "SIGTERM")
             result.timedOut `shouldEqual` true
