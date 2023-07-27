@@ -14,22 +14,6 @@ export function processCallFn(originalProcessReallyExit, exitCode) {
   return originalProcessReallyExit.call(global.process, exitCode);
 }
 
-export function processKill(pid, sig) {
-  global.process.kill(pid, sig);
-}
-
-export function processListenersLength(sig) {
-  return global.process.listeners(sig).length;
-}
-
-export function processOn(sig, listener) {
-  return global.process.on(sig, listener);
-}
-
-export function processOff(sig, listener) {
-  return global.process.off(sig, listener);
-}
-
 export function customProcessEmit(cb) {
   return function (ev, arg) {
     const thisArg = this;
@@ -38,6 +22,3 @@ export function customProcessEmit(cb) {
   };
 }
 
-export function processExitCode() {
-  return global.process.exitCode;
-}
