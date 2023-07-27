@@ -334,7 +334,7 @@ execa file args buildOptions = do
         ( do
             liftEffect do
               removal <- SignalExit.onExit \_ _ -> do
-                void $ execaKill (Just $ stringSignal "SIGTERM") Nothing spawned
+                void $ CP.kill' (stringSignal "SIGTERM") spawned
               Ref.write (Just removal) removeHandlerRef
             joinFiber spawnedFiber
         )
@@ -346,7 +346,7 @@ execa file args buildOptions = do
   let
     cancel :: Aff Unit
     cancel = liftEffect do
-      killSucceeded <- execaKill (Just $ stringSignal "SIGTERM") Nothing spawned
+      killSucceeded <- CP.kill' (stringSignal "SIGTERM") spawned
       when killSucceeded do
         Ref.write true canceledRef
 
@@ -424,7 +424,7 @@ execa file args buildOptions = do
                   tid <- setTimeout ((unsafeCoerce :: Milliseconds -> Int) milliseconds) do
                     killed' <- CP.killed spawned
                     unless killed' do
-                      void $ execaKill (Just signal) Nothing spawned
+                      void $ CP.kill' signal spawned
                       mbPid <- CP.pid spawned
                       for_ mbPid \_ -> do
                         -- stdin/out/err only exist if child process has spawned
