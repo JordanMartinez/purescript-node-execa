@@ -353,7 +353,7 @@ execa file args buildOptions = do
   let
     mainFiber
       :: Maybe (Pid -> Aff Unit)
-      -> Aff _
+      -> Aff ExecaResult
     mainFiber postSpawn = do
       res <- joinFiber processSpawnedFiber
       case res of
