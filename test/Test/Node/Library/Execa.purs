@@ -7,6 +7,7 @@ import Data.Time.Duration (Milliseconds(..))
 import Effect.Class (liftEffect)
 import Effect.Exception as Exception
 import Node.Buffer as Buffer
+import Node.ChildProcess as CP
 import Node.ChildProcess.Types (Exit(..), fromKillSignal', intSignal, stringSignal)
 import Node.Encoding (Encoding(..))
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
@@ -73,10 +74,15 @@ spec = describe "execa" do
           (_ { timeout = Just { milliseconds: Milliseconds 400.0, killSignal: stringSignal "SIGTERM" } })
         result <- spawned.getResult
         case result.exit of
-          Normally _ -> fail $ "Timeout should work: " <> show result
+          Normally 64 | isWindows -> do
+            sig <- liftEffect $ CP.signalCode spawned.childProcess
+            sig `shouldEqual` (Just "SIGTERM")
+            result.timedOut `shouldEqual` true
           BySignal sig -> do
             sig `shouldEqual` (stringSignal "SIGTERM")
             result.timedOut `shouldEqual` true
+          _ ->
+            fail $ "Timeout should work: " <> show result
   describe "execaSync" do
     describe "`cat` tests" do
       it "input is file" do
