@@ -308,17 +308,17 @@ execa file args buildOptions = do
     escapedCommand = getEscapedCommand file args
   spawned <- liftEffect $ CP.spawn' parsed.file parsed.args
     ( _
-        { cwd = options.cwd
+        { cwd = Just parsed.options.cwd
         , env = Just parsed.options.env
         , argv0 = options.argv0
-        , appendStdio = options.stdioExtra
+        , appendStdio = Just parsed.options.stdioExtra
         , detached = options.detached
         , uid = options.uid
         , gid = options.gid
         , serialization = Nothing
         , shell = map customShell options.shell
-        , windowsVerbatimArguments = options.windowsVerbatimArguments
-        , windowsHide = options.windowsHide
+        , windowsVerbatimArguments = Just parsed.options.windowsVerbatimArguments
+        , windowsHide = Just parsed.options.windowsHide
         }
     )
   stdinErrRef <- liftEffect $ Ref.new Nothing
