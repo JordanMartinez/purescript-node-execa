@@ -309,7 +309,7 @@ execa file args buildOptions = do
   spawned <- liftEffect $ CP.spawn' parsed.file parsed.args
     ( _
         { cwd = options.cwd
-        , env = options.env
+        , env = Just parsed.options.env
         , argv0 = options.argv0
         , appendStdio = options.stdioExtra
         , detached = options.detached
