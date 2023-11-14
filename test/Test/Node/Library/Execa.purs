@@ -17,6 +17,7 @@ import Node.UnsafeChildProcess.Safe as SafeCP
 import Test.Node.Library.Utils (isWindows, itNix)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
+import Test.Spec.Assertions as Assertions
 import Test.Spec.Assertions.String (shouldContain)
 
 spec :: Spec Unit
@@ -82,11 +83,15 @@ spec = describe "execa" do
         case result.exit of
           Normally 64 | isWindows -> do
             sig <- liftEffect $ SafeCP.signalCode spawned.childProcess
-            sig `shouldEqual` (Just "SIGTERM")
-            result.timedOut `shouldEqual` true
+            when (sig /= (Just "SIGTERM")) do
+              Assertions.fail $ "Didn't get expected kill signal. Result was\n" <> show result
+            unless (result.timedOut) do
+              Assertions.fail $ "Result didn't indicate time out. Result was\n" <> show result
           BySignal sig -> do
-            sig `shouldEqual` (stringSignal "SIGTERM")
-            result.timedOut `shouldEqual` true
+            when (sig /= (stringSignal "SIGTERM")) do
+              Assertions.fail $ "Didn't get expected kill signal. Result was\n" <> show result
+            unless (result.timedOut) do
+              Assertions.fail $ "Result didn't indicate time out. Result was\n" <> show result
           _ ->
             fail $ "Timeout should work: " <> show result
   describe "execaSync" do
