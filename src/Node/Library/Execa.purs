@@ -684,6 +684,7 @@ execaSync file args buildOptions = do
         , stdin = options.stdin
         , stdout = options.stdout
         , stderr = options.stderr
+        -- Note: `ipc` stdio value is not supported when using `spawnSync`.
         , appendStdio = Just parsed.options.stdioExtra
         , env = Just parsed.options.env
         , uid = parsed.options.uid
