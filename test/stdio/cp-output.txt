@@ -1,0 +1,401 @@
+$ node cp-tests.mjs 
+[stdin: inherit | stdout: inherit | stderr: inherit]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+This run won't exit until you press Ctrl+D to end stdin stream...
+
+Script started
+log 1
+error 1
+log 2
+error 2
+Script terminated
+a
+Got data from stdin: a
+
+..Exited
+
+
+[stdin: inherit | stdout: inherit | stderr: ignore]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+This run won't exit until you press Ctrl+D to end stdin stream...
+
+Script started
+log 1
+log 2
+Script terminated
+b
+Got data from stdin: b
+
+..Exited
+
+
+[stdin: inherit | stdout: inherit | stderr: pipe]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Success
+This run won't exit until you press Ctrl+D to end stdin stream...
+
+Script started
+log 1
+  stderr: error 1
+
+log 2
+Script terminated
+  stderr: error 2
+
+c
+Got data from stdin: c
+
+..Exited
+
+
+[stdin: inherit | stdout: ignore | stderr: inherit]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+This run won't exit until you press Ctrl+D to end stdin stream...
+
+error 1
+error 2
+..Exited
+
+
+[stdin: inherit | stdout: ignore | stderr: ignore]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+This run won't exit until you press Ctrl+D to end stdin stream...
+
+..Exited
+
+
+[stdin: inherit | stdout: ignore | stderr: pipe]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Success
+This run won't exit until you press Ctrl+D to end stdin stream...
+
+  stderr: error 1
+
+  stderr: error 2
+
+..Exited
+
+
+[stdin: inherit | stdout: pipe | stderr: inherit]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Success
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+This run won't exit until you press Ctrl+D to end stdin stream...
+
+  stdout: Script started
+
+  stdout: log 1
+
+error 1
+  stdout: log 2
+
+error 2
+  stdout: Script terminated
+
+e
+  stdout: Got data from stdin: e
+
+
+..Exited
+
+
+[stdin: inherit | stdout: pipe | stderr: ignore]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Success
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+This run won't exit until you press Ctrl+D to end stdin stream...
+
+  stdout: Script started
+
+  stdout: log 1
+
+  stdout: log 2
+
+  stdout: Script terminated
+
+f
+  stdout: Got data from stdin: f
+
+
+..Exited
+
+
+[stdin: inherit | stdout: pipe | stderr: pipe]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Success
+  can read from stderr: Success
+This run won't exit until you press Ctrl+D to end stdin stream...
+
+  stdout: Script started
+
+  stdout: log 1
+
+  stderr: error 1
+
+  stdout: log 2
+
+  stderr: error 2
+
+  stdout: Script terminated
+
+g
+  stdout: Got data from stdin: g
+
+
+..Exited
+
+
+[stdin: ignore | stdout: inherit | stderr: inherit]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+Script started
+log 1
+error 1
+log 2
+error 2
+Script terminated
+..Exited
+
+
+[stdin: ignore | stdout: inherit | stderr: ignore]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+Script started
+log 1
+log 2
+Script terminated
+..Exited
+
+
+[stdin: ignore | stdout: inherit | stderr: pipe]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Success
+Script started
+log 1
+  stderr: error 1
+
+log 2
+Script terminated
+  stderr: error 2
+
+..Exited
+
+
+[stdin: ignore | stdout: ignore | stderr: inherit]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+error 1
+error 2
+..Exited
+
+
+[stdin: ignore | stdout: ignore | stderr: ignore]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+..Exited
+
+
+[stdin: ignore | stdout: ignore | stderr: pipe]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Success
+  stderr: error 1
+
+  stderr: error 2
+
+..Exited
+
+
+[stdin: ignore | stdout: pipe | stderr: inherit]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Success
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+  stdout: Script started
+
+  stdout: log 1
+
+error 1
+  stdout: log 2
+
+error 2
+  stdout: Script terminated
+
+..Exited
+
+
+[stdin: ignore | stdout: pipe | stderr: ignore]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Success
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+  stdout: Script started
+
+  stdout: log 1
+
+  stdout: log 2
+
+  stdout: Script terminated
+
+..Exited
+
+
+[stdin: ignore | stdout: pipe | stderr: pipe]
+  can write to stdin: Error - TypeError: Cannot read properties of null (reading 'write')
+  can read from stdout: Success
+  can read from stderr: Success
+  stdout: Script started
+
+  stdout: log 1
+
+  stderr: error 1
+
+  stdout: log 2
+
+  stderr: error 2
+
+  stdout: Script terminated
+
+..Exited
+
+
+[stdin: pipe | stdout: inherit | stderr: inherit]
+  can write to stdin: Success
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+Script started
+Got data from stdin: some data
+log 1
+error 1
+log 2
+error 2
+Script terminated
+..Exited
+
+
+[stdin: pipe | stdout: inherit | stderr: ignore]
+  can write to stdin: Success
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+Script started
+Got data from stdin: some data
+log 1
+log 2
+Script terminated
+..Exited
+
+
+[stdin: pipe | stdout: inherit | stderr: pipe]
+  can write to stdin: Success
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Success
+Script started
+Got data from stdin: some data
+log 1
+  stderr: error 1
+
+log 2
+Script terminated
+  stderr: error 2
+
+..Exited
+
+
+[stdin: pipe | stdout: ignore | stderr: inherit]
+  can write to stdin: Success
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+error 1
+error 2
+..Exited
+
+
+[stdin: pipe | stdout: ignore | stderr: ignore]
+  can write to stdin: Success
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+..Exited
+
+
+[stdin: pipe | stdout: ignore | stderr: pipe]
+  can write to stdin: Success
+  can read from stdout: Error - TypeError: Cannot read properties of null (reading 'on')
+  can read from stderr: Success
+  stderr: error 1
+
+  stderr: error 2
+
+..Exited
+
+
+[stdin: pipe | stdout: pipe | stderr: inherit]
+  can write to stdin: Success
+  can read from stdout: Success
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+  stdout: Script started
+
+  stdout: Got data from stdin: some data
+
+  stdout: log 1
+
+error 1
+  stdout: log 2
+
+error 2
+  stdout: Script terminated
+
+..Exited
+
+
+[stdin: pipe | stdout: pipe | stderr: ignore]
+  can write to stdin: Success
+  can read from stdout: Success
+  can read from stderr: Error - TypeError: Cannot read properties of null (reading 'on')
+  stdout: Script started
+
+  stdout: Got data from stdin: some data
+
+  stdout: log 1
+
+  stdout: log 2
+
+  stdout: Script terminated
+
+..Exited
+
+
+[stdin: pipe | stdout: pipe | stderr: pipe]
+  can write to stdin: Success
+  can read from stdout: Success
+  can read from stderr: Success
+  stdout: Script started
+
+  stdout: Got data from stdin: some data
+
+  stdout: log 1
+
+  stderr: error 1
+
+  stdout: log 2
+
+  stderr: error 2
+
+  stdout: Script terminated
+
+..Exited
+
+
+Done
