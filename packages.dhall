@@ -66,7 +66,7 @@ in  upstream
         , "prelude"
         , "unsafe-coerce"
         ]
-      with node-child-process.version = "v11.0.0"
+      with node-child-process.version = "v11.1.0"
       with node-child-process.dependencies =
         [ "exceptions"
         , "node-event-emitter"

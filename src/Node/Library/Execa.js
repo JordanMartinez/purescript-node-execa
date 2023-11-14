@@ -6,3 +6,5 @@ export function setTimeoutImpl(timeout, cb) {
   return t.unref ? t : { unref: () => {} };
 }
 
+const undefinedVal = undefined;
+export { undefinedVal as undefined };

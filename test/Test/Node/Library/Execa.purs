@@ -4,25 +4,27 @@ import Prelude
 
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
+import Data.Traversable (for_)
 import Effect.Class (liftEffect)
 import Effect.Exception as Exception
 import Node.Buffer as Buffer
-import Node.ChildProcess as CP
 import Node.ChildProcess.Types (Exit(..), fromKillSignal', intSignal, stringSignal)
 import Node.Encoding (Encoding(..))
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.HumanSignals (signals)
 import Node.Path as Path
+import Node.UnsafeChildProcess.Safe as SafeCP
 import Test.Node.Library.Utils (isWindows, itNix)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
+import Test.Spec.Assertions as Assertions
 import Test.Spec.Assertions.String (shouldContain)
 
 spec :: Spec Unit
 spec = describe "execa" do
   itNix "`echo test` should fail due to a Node.js bug" do
     spawned <- execa "echo" [] identity
-    spawned.stdin.writeUtf8End "test"
+    for_ spawned.stdin \s -> s.writeUtf8End "test"
     result <- spawned.getResult
     case result.stdinError of
       Nothing -> fail "Expected EPIPE error"
@@ -36,7 +38,7 @@ spec = describe "execa" do
         _ -> fail result.message
     itNix "input is buffer" do
       spawned <- execa "cat" [ "-" ] identity
-      spawned.stdin.writeUtf8End "test"
+      for_ spawned.stdin \s -> s.writeUtf8End "test"
       result <- spawned.getResult
       case result.exit of
         Normally 0 -> result.stdout `shouldEqual` "test"
@@ -49,7 +51,7 @@ spec = describe "execa" do
   describe "using sleep files" do
     let
       shellCmd = if isWindows then "pwsh" else "sh"
-      sleepFile = Path.concat [ "test", "fixtures", "sleep." <> if isWindows then "cmd" else "sh" ]
+      sleepFile = Path.concat [ "test", "fixtures", "sleep." <> if isWindows then "ps1" else "sh" ]
     describe "kill works" do
       it "basic cancel produces error" do
         spawned <- execa shellCmd [ sleepFile, "1" ] identity
@@ -80,12 +82,16 @@ spec = describe "execa" do
         result <- spawned.getResult
         case result.exit of
           Normally 64 | isWindows -> do
-            sig <- liftEffect $ CP.signalCode spawned.childProcess
-            sig `shouldEqual` (Just "SIGTERM")
-            result.timedOut `shouldEqual` true
+            sig <- liftEffect $ SafeCP.signalCode spawned.childProcess
+            when (sig /= (Just "SIGTERM")) do
+              Assertions.fail $ "Didn't get expected kill signal. Result was\n" <> show result
+            unless (result.timedOut) do
+              Assertions.fail $ "Result didn't indicate time out. Result was\n" <> show result
           BySignal sig -> do
-            sig `shouldEqual` (stringSignal "SIGTERM")
-            result.timedOut `shouldEqual` true
+            when (sig /= (stringSignal "SIGTERM")) do
+              Assertions.fail $ "Didn't get expected kill signal. Result was\n" <> show result
+            unless (result.timedOut) do
+              Assertions.fail $ "Result didn't indicate time out. Result was\n" <> show result
           _ ->
             fail $ "Timeout should work: " <> show result
   describe "execaSync" do
@@ -111,7 +117,7 @@ spec = describe "execa" do
           _ -> fail result.message
       itNix "input is buffer" do
         spawned <- execaCommand "cat -" identity
-        spawned.stdin.writeUtf8End "test"
+        for_ spawned.stdin \s -> s.writeUtf8End "test"
         result <- spawned.getResult
         case result.exit of
           Normally 0 -> result.stdout `shouldEqual` "test"
