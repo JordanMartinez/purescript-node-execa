@@ -38,7 +38,7 @@ const printStatus = (testName, cp) => {
 
 const doSpawn = (opts, next) => {
   const testName = `[stdin: ${opts.stdin} | stdout: ${opts.stdout} | stderr: ${opts.stderr}]`;
-  const cp = child_process.spawn("node", ["cp-script.mjs"], {
+  const cp = child_process.spawn("node", ["child.mjs"], {
     stdio: [ opts.stdin, opts.stdout, opts.stderr ]
   });
   cp.once("spawn", () => {
