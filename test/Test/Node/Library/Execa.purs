@@ -4,15 +4,16 @@ import Prelude
 
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..))
+import Data.Traversable (for_)
 import Effect.Class (liftEffect)
 import Effect.Exception as Exception
 import Node.Buffer as Buffer
-import Node.ChildProcess as CP
 import Node.ChildProcess.Types (Exit(..), fromKillSignal', intSignal, stringSignal)
 import Node.Encoding (Encoding(..))
 import Node.Library.Execa (execa, execaCommand, execaCommandSync, execaSync)
 import Node.Library.HumanSignals (signals)
 import Node.Path as Path
+import Node.UnsafeChildProcess.Safe as SafeCP
 import Test.Node.Library.Utils (isWindows, itNix)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (fail, shouldEqual)
@@ -22,7 +23,7 @@ spec :: Spec Unit
 spec = describe "execa" do
   itNix "`echo test` should fail due to a Node.js bug" do
     spawned <- execa "echo" [] identity
-    spawned.stdin.writeUtf8End "test"
+    for_ spawned.stdin \s -> s.writeUtf8End "test"
     result <- spawned.getResult
     case result.stdinError of
       Nothing -> fail "Expected EPIPE error"
@@ -36,7 +37,7 @@ spec = describe "execa" do
         _ -> fail result.message
     itNix "input is buffer" do
       spawned <- execa "cat" [ "-" ] identity
-      spawned.stdin.writeUtf8End "test"
+      for_ spawned.stdin \s -> s.writeUtf8End "test"
       result <- spawned.getResult
       case result.exit of
         Normally 0 -> result.stdout `shouldEqual` "test"
@@ -80,7 +81,7 @@ spec = describe "execa" do
         result <- spawned.getResult
         case result.exit of
           Normally 64 | isWindows -> do
-            sig <- liftEffect $ CP.signalCode spawned.childProcess
+            sig <- liftEffect $ SafeCP.signalCode spawned.childProcess
             sig `shouldEqual` (Just "SIGTERM")
             result.timedOut `shouldEqual` true
           BySignal sig -> do
@@ -111,7 +112,7 @@ spec = describe "execa" do
           _ -> fail result.message
       itNix "input is buffer" do
         spawned <- execaCommand "cat -" identity
-        spawned.stdin.writeUtf8End "test"
+        for_ spawned.stdin \s -> s.writeUtf8End "test"
         result <- spawned.getResult
         case result.exit of
           Normally 0 -> result.stdout `shouldEqual` "test"

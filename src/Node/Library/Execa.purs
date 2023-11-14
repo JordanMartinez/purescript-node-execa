@@ -24,6 +24,7 @@ import Data.Foldable (for_, sequence_)
 import Data.Int (floor, toNumber)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
+import Data.Nullable (Nullable, toMaybe)
 import Data.Posix (Gid, Pid, Uid)
 import Data.String as String
 import Data.String.Regex (Regex, test)
@@ -38,14 +39,13 @@ import Effect.Exception as Exception
 import Effect.Ref as Ref
 import Effect.Timer (clearTimeout, setTimeout)
 import Effect.Uncurried (EffectFn2, runEffectFn2)
+import Foreign (Foreign)
 import Foreign.Object (Object)
 import Foreign.Object as Object
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
-import Node.ChildProcess (ChildProcess)
-import Node.ChildProcess as CP
-import Node.ChildProcess.Aff (waitSpawned)
-import Node.ChildProcess.Types (Exit(..), KillSignal, StdIO, customShell, fromKillSignal, fromKillSignal', stringSignal)
+import Node.ChildProcess.Aff (waitSpawned')
+import Node.ChildProcess.Types (Exit(..), KillSignal, Shell, StdIO, UnsafeChildProcess, customShell, defaultStdIO, fromKillSignal, fromKillSignal', stringSignal)
 import Node.Encoding (Encoding(..))
 import Node.Errors.SystemError (SystemError)
 import Node.Errors.SystemError as SystemError
@@ -61,7 +61,8 @@ import Node.Library.HumanSignals (signals)
 import Node.Process as Process
 import Node.Stream (Readable, Writable, destroy)
 import Node.Stream as Stream
-import Node.UnsafeChildProcess.Unsafe as Unsafe
+import Node.UnsafeChildProcess.Safe as SafeCP
+import Node.UnsafeChildProcess.Unsafe as UnsafeCP
 import Partial.Unsafe (unsafeCrashWith)
 import Record as Record
 import Type.Proxy (Proxy(..))
@@ -98,8 +99,12 @@ getEnv r = do
 -- | - `stripFinalNewline` - (default: `true`). If enabled, trims the newline character of `stdout`/`stderr` (e.g. `/(?:/r/n)|\r|\n$/`
 -- | - `extendEnv` (default: `true`) - Extends the child process' `env` with `Process.env`
 -- | - `argv0` - see Node docs
+-- | - `stdin` - `stdio[0]`. Defaults to `null`.
+-- | - `stdout` - `stdio[1]`. Defaults to `null`.
+-- | - `stderr` - `stdio[2]`. Defaults to `null`.
+-- | - `ipc` - `stdio[3]`. Defaults to `null`.
 -- | - `stdioExtra` - Append any other `stdio` values to the array.
--- |      The `stdio` array used is always `["pipe", "pipe", "pipe", "ipc"] <> fromMaybe [] options.stdioExtra`
+-- |      The `stdio` array used is always `[stdin, stdout, stderr, ipc] <> fromMaybe [] options.stdioExtra`
 -- | - `detached` - see Node docs
 -- | - `uid` - see Node docs
 -- | - `gid` - see Node docs
@@ -122,6 +127,10 @@ type ExecaOptions =
   , env :: Maybe (Object String)
   , encoding :: Maybe Encoding
   , argv0 :: Maybe String
+  , stdin :: Maybe StdIO
+  , stdout :: Maybe StdIO
+  , stderr :: Maybe StdIO
+  , ipc :: Maybe StdIO
   , stdioExtra :: Maybe (Array StdIO)
   , detached :: Maybe Boolean
   , uid :: Maybe Uid
@@ -139,6 +148,10 @@ defaultExecaOptions :: ExecaOptions
 defaultExecaOptions =
   { cleanup: Nothing
   , preferLocal: Nothing
+  , stdin: Nothing
+  , stdout: Nothing
+  , stderr: Nothing
+  , ipc: Nothing
   , stdioExtra: Nothing
   , stripFinalNewline: Nothing
   , extendEnv: Nothing
@@ -217,6 +230,10 @@ handleArguments file args initOptions = do
 
     options =
       { cleanup: fromMaybe defaultOptions.cleanup initOptions.cleanup
+      , stdin: initOptions.stdin
+      , stdout: initOptions.stdout
+      , stderr: initOptions.stderr
+      , ipc: initOptions.ipc
       , stdioExtra: fromMaybe [] initOptions.stdioExtra
       , maxBuffer: fromMaybe defaultOptions.maxBuffer initOptions.maxBuffer
       , stripFinalNewline: fromMaybe defaultOptions.stripFinalNewline initOptions.stripFinalNewline
@@ -244,10 +261,14 @@ handleArguments file args initOptions = do
 -- | - `cancel` - kill the child process, but indicate it was cancelled rather than killed in the error message
 -- | - `killForced*` - kills the child process with the given signal or SIGTERM if not defined. If child is still alive after timeout, sends `SIGKILL` to child.
 -- | - Convenience functions for `stdin`/`stdout`/`stderr`
--- |     - `stdin.stream` - access the child process' `stdin`
--- |     - `stdin.writeUt8` - Write a string to the child process' `stdin`
--- |     - `stdin.writeUt8End` - Write a string to the child process' `stdin` and then `end` the stream
--- |     - `stdin.end` - End the child process' `stdin`
+-- |
+-- | ```
+-- | for_ spawned.stdin \{ stream, writeUtf8, writeUtf8End, end } -> do
+-- |   stream -- access the child process' `stdin`
+-- |   writeUt8 -- Write a string to the child process' `stdin`
+-- |   writeUt8End -- Write a string to the child process' `stdin` and then `end` the stream
+-- |   end -- End the child process' `stdin`
+-- | ```
 type ExecaProcess =
   { cancel :: Aff Unit
   , getResult :: Aff ExecaResult
@@ -261,27 +282,29 @@ type ExecaProcess =
   , killForcedWithSignal :: KillSignal -> Milliseconds -> Aff Boolean
   , killWithSignal :: KillSignal -> Aff Boolean
   , killed :: Aff Boolean
-  , childProcess :: ChildProcess
+  , childProcess :: UnsafeChildProcess
   , ref :: Aff Unit
   , unref :: Aff Unit
   , spawnArgs :: Array String
   , spawnFile :: String
   , waitSpawned :: Aff (Either SystemError Pid)
   , stdin ::
-      { stream :: Writable ()
-      , writeUtf8 :: String -> Aff Unit
-      , writeUtf8End :: String -> Aff Unit
-      , end :: Aff Unit
-      , pipeFromParentProcessStdin :: Aff Unit
-      }
+      Maybe
+        { stream :: Writable ()
+        , writeUtf8 :: String -> Aff Unit
+        , writeUtf8End :: String -> Aff Unit
+        , end :: Aff Unit
+        }
   , stdout ::
-      { stream :: Readable ()
-      , pipeToParentStdout :: Aff Unit
-      }
+      Maybe
+        { stream :: Readable ()
+        , pipeToParentStdout :: Aff Unit
+        }
   , stderr ::
-      { stream :: Readable ()
-      , pipeToParentStderr :: Aff Unit
-      }
+      Maybe
+        { stream :: Readable ()
+        , pipeToParentStderr :: Aff Unit
+        }
   }
 
 -- | Replacement for `childProcess.spawn`. Since this is asynchronous,
@@ -306,11 +329,15 @@ execa file args buildOptions = do
   let
     command = joinCommand file args
     escapedCommand = getEscapedCommand file args
-  spawned <- liftEffect $ CP.spawn' parsed.file parsed.args
+  spawned <- liftEffect $ spawn' parsed.file parsed.args
     ( _
         { cwd = Just parsed.options.cwd
         , env = Just parsed.options.env
         , argv0 = options.argv0
+        , stdin = parsed.options.stdin
+        , stdout = parsed.options.stdout
+        , stderr = parsed.options.stdin
+        , ipc = parsed.options.ipc
         , appendStdio = Just parsed.options.stdioExtra
         , detached = options.detached
         , uid = options.uid
@@ -323,7 +350,7 @@ execa file args buildOptions = do
     )
   stdinErrRef <- liftEffect $ Ref.new Nothing
   canceledRef <- liftEffect $ Ref.new false
-  spawnedFiber <- suspendAff $ waitSpawned spawned
+  spawnedFiber <- suspendAff $ waitSpawned' spawned
 
   processSpawnedFiber <- do
     if not parsed.options.cleanup || parsed.options.detached then pure spawnedFiber
@@ -334,7 +361,7 @@ execa file args buildOptions = do
         ( do
             liftEffect do
               removal <- SignalExit.onExit \_ _ -> do
-                void $ CP.kill' (stringSignal "SIGTERM") spawned
+                void $ SafeCP.kill' (stringSignal "SIGTERM") spawned
               Ref.write (Just removal) removeHandlerRef
             joinFiber spawnedFiber
         )
@@ -346,7 +373,7 @@ execa file args buildOptions = do
   let
     cancel :: Aff Unit
     cancel = liftEffect do
-      killSucceeded <- CP.kill' (stringSignal "SIGTERM") spawned
+      killSucceeded <- SafeCP.kill' (stringSignal "SIGTERM") spawned
       when killSucceeded do
         Ref.write true canceledRef
 
@@ -361,8 +388,8 @@ execa file args buildOptions = do
           -- If the process fails to spawn, an `exit` event will not be emitted.
           -- So, get that information via `exitCode`/`signalCode` and combine here.
           let gotENOENT = SystemError.code err == "ENOENT"
-          unfixedExitCode' <- CP.exitCode spawned
-          signalCode' <- CP.signalCode spawned
+          unfixedExitCode' <- SafeCP.exitCode spawned
+          signalCode' <- SafeCP.signalCode spawned
           let
             exitCode' = case unfixedExitCode' of
               Just _ | gotENOENT -> Just 127
@@ -374,7 +401,7 @@ execa file args buildOptions = do
               _, Just s -> BySignal $ stringSignal s
               _, _ -> unsafeCrashWith $ "Impossible: either exit or signal should be non-null"
           canceled <- Ref.read canceledRef
-          killed' <- CP.killed spawned
+          killed' <- SafeCP.killed spawned
           pure $
             mkExecaResult
               { spawnError: Just err
@@ -408,16 +435,12 @@ execa file args buildOptions = do
               Just { milliseconds, killSignal: signal } -> do
                 makeAff \cb -> do
                   tid <- setTimeout ((unsafeCoerce :: Milliseconds -> Int) milliseconds) do
-                    killed' <- CP.killed spawned
+                    killed' <- SafeCP.killed spawned
                     unless killed' do
-                      void $ CP.kill' signal spawned
-                      mbPid <- CP.pid spawned
-                      for_ mbPid \_ -> do
-                        -- stdin/out/err only exist if child process has spawned
-                        -- which can be determind if `pid` is not `null`.
-                        void $ destroy (CP.stdin spawned)
-                        void $ destroy (CP.stdout spawned)
-                        void $ destroy (CP.stderr spawned)
+                      void $ SafeCP.kill' signal spawned
+                      for_ (toMaybe $ UnsafeCP.unsafeStdin spawned) (void <<< destroy)
+                      for_ (toMaybe $ UnsafeCP.unsafeStdout spawned) (void <<< destroy)
+                      for_ (toMaybe $ UnsafeCP.unsafeStderr spawned) (void <<< destroy)
                       Ref.write (Just signal) timeoutRef
                     cb $ Right unit
                   Ref.write (clearTimeout tid) clearKillOnTimeoutRef
@@ -426,35 +449,39 @@ execa file args buildOptions = do
                 never
           -- if the child process successfully spawned,
           -- we can now access the `stdio` values safely.
-          liftEffect $ (CP.stdin spawned) # once_ Stream.errorH \error -> do
-            Ref.write (Just error) stdinErrRef
+          for_ (toMaybe $ UnsafeCP.unsafeStdin spawned) \stdin' ->
+            liftEffect $ stdin' # once_ Stream.errorH \error -> do
+              Ref.write (Just error) stdinErrRef
 
           -- allow end-user to use child process before code is finished.
           for_ postSpawn \callback -> callback pid
 
           processFinishedFiber :: Fiber Exit <- forkAff $ makeAff \done -> do
-            spawned # once_ CP.exitH \exitResult -> do
+            spawned # once_ SafeCP.exitH \exitResult -> do
               clearKillOnTimeout
               done $ Right exitResult
             pure nonCanceler
 
           let
             mkStdIoFiber
-              :: Readable ()
+              :: Nullable (Readable ())
               -> Aff (Fiber { text :: String, error :: Maybe Error })
-            mkStdIoFiber stream = forkAff do
-              streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
-              text <- liftEffect do
-                buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } streamResult.buffer
-                text <- Buffer.toString parsed.options.encoding buf
-                when (isJust streamResult.inputError) do
-                  destroy stream
-                pure text
-              pure { text, error: streamResult.inputError }
+            mkStdIoFiber = toMaybe >>> case _ of
+              Nothing -> forkAff do
+                pure { text: "", error: Nothing }
+              Just stream -> forkAff do
+                streamResult <- getStreamBuffer stream { maxBuffer: Just parsed.options.maxBuffer }
+                text <- liftEffect do
+                  buf <- handleOutput { stripFinalNewline: parsed.options.stripFinalNewline } streamResult.buffer
+                  text <- Buffer.toString parsed.options.encoding buf
+                  when (isJust streamResult.inputError) do
+                    destroy stream
+                  pure text
+                pure { text, error: streamResult.inputError }
 
           -- Setup fibers to get stdout/stderr
-          stdoutFiber <- mkStdIoFiber (CP.stdout spawned)
-          stderrFiber <- mkStdIoFiber (CP.stderr spawned)
+          stdoutFiber <- mkStdIoFiber (UnsafeCP.unsafeStdout spawned)
+          stderrFiber <- mkStdIoFiber (UnsafeCP.unsafeStderr spawned)
 
           -- now wait for the result
           result <- sequential $ { exit: _, stdout: _, stderr: _ }
@@ -465,7 +492,7 @@ execa file args buildOptions = do
           liftEffect do
             stdinErr <- Ref.read stdinErrRef
             canceled <- Ref.read canceledRef
-            killed' <- CP.killed spawned
+            killed' <- SafeCP.killed spawned
             timeout <- Ref.read timeoutRef
             let
               exitResult :: { exitCode :: Maybe Int, signal :: Maybe KillSignal }
@@ -495,51 +522,49 @@ execa file args buildOptions = do
     { cancel
     , getResult: mainFiber Nothing
     , getResult': \cb -> mainFiber (Just cb)
-    , unsafeChannelRef: liftEffect $ Unsafe.unsafeChannelRef $ CP.toUnsafeChildProcess spawned
-    , unsafeChannelUnref: liftEffect $ Unsafe.unsafeChannelUnref $ CP.toUnsafeChildProcess spawned
-    , connected: liftEffect $ CP.connected spawned
-    , disconnect: liftEffect $ CP.disconnect spawned
-    , kill: liftEffect $ CP.kill spawned
-    , killWithSignal: \signal -> liftEffect $ CP.kill' signal spawned
+    , unsafeChannelRef: liftEffect $ UnsafeCP.unsafeChannelRef spawned
+    , unsafeChannelUnref: liftEffect $ UnsafeCP.unsafeChannelUnref spawned
+    , connected: liftEffect $ SafeCP.connected spawned
+    , disconnect: liftEffect $ SafeCP.disconnect spawned
+    , kill: liftEffect $ SafeCP.kill spawned
+    , killWithSignal: \signal -> liftEffect $ SafeCP.kill' signal spawned
     , killForced: \forceKillAfterTimeout -> liftEffect do
         execaKill (Just $ stringSignal "SIGTERM") (Just forceKillAfterTimeout) spawned
     , killForcedWithSignal: \signal forceKillAfterTimeout -> liftEffect do
         execaKill (Just signal) (Just forceKillAfterTimeout) spawned
-    , killed: liftEffect $ CP.killed spawned
-    , unref: liftEffect $ CP.unref spawned
-    , ref: liftEffect $ CP.ref spawned
-    , spawnArgs: CP.spawnArgs spawned
-    , spawnFile: CP.spawnFile spawned
+    , killed: liftEffect $ SafeCP.killed spawned
+    , unref: liftEffect $ SafeCP.unref spawned
+    , ref: liftEffect $ SafeCP.ref spawned
+    , spawnArgs: SafeCP.spawnArgs spawned
+    , spawnFile: SafeCP.spawnFile spawned
     , childProcess: spawned
-    , stdin:
-        { stream: CP.stdin spawned
+    , stdin: (toMaybe $ UnsafeCP.unsafeStdin spawned) <#> \stdin' ->
+        { stream: stdin'
         , writeUtf8: \string -> liftEffect do
             buf <- Buffer.fromString string UTF8
-            void $ Stream.write (CP.stdin spawned) buf
+            void $ Stream.write stdin' buf
         , writeUtf8End: \string -> liftEffect do
             buf <- Buffer.fromString string UTF8
-            void $ Stream.write (CP.stdin spawned) buf
-            void $ Stream.end (CP.stdin spawned)
+            void $ Stream.write stdin' buf
+            void $ Stream.end stdin'
         , end: liftEffect do
-            void $ Stream.end (CP.stdin spawned)
-        , pipeFromParentProcessStdin: liftEffect do
-            void $ Stream.pipe Process.stdin (CP.stdin spawned)
+            void $ Stream.end stdin'
         }
-    , stdout:
-        { stream: CP.stdout spawned
+    , stdout: (toMaybe $ UnsafeCP.unsafeStdout spawned) <#> \stdout' ->
+        { stream: stdout'
         , pipeToParentStdout: liftEffect do
-            void $ Stream.pipe (CP.stdout spawned) Process.stdout
+            void $ Stream.pipe stdout' Process.stdout
         }
-    , stderr:
-        { stream: CP.stderr spawned
+    , stderr: (toMaybe $ UnsafeCP.unsafeStderr spawned) <#> \stderr' ->
+        { stream: stderr'
         , pipeToParentStderr: liftEffect do
-            void $ Stream.pipe (CP.stderr spawned) Process.stderr
+            void $ Stream.pipe stderr' Process.stderr
         }
     , waitSpawned: do
-        mbPid <- liftEffect $ CP.pid spawned
+        mbPid <- liftEffect $ SafeCP.pid spawned
         case mbPid of
           Just p -> pure $ Right p
-          Nothing -> waitSpawned spawned
+          Nothing -> waitSpawned' spawned
     }
 
 -- | - `cleanup` (default: `true`): Kill the spawned process when the parent process exits unless either:
@@ -554,8 +579,11 @@ execa file args buildOptions = do
 -- | - `extendEnv` (default: `true`) - Extends the child process' `env` with `Process.env`
 -- | - `argv0` - see Node docs
 -- | - `input` - When defined, the input is piped into the child's `stdin` and then `stdin` is `end`ed.
+-- | - `stdin` - `stdio[0]`. Defaults to `null`. Note: this value has no effect if `input` is defined.
+-- | - `stdout` - `stdio[1]`. Defaults to `null`.
+-- | - `stderr` - `stdio[2]`. Defaults to `null`.
 -- | - `stdioExtra` - Append any other `stdio` values to the array.
--- |    The `stdio` array used is always `["pipe", "pipe", "pipe", "ipc"] <> fromMaybe [] options.stdioExtra`
+-- |      The `stdio` array used is always `[stdin, stdout, stderr] <> fromMaybe [] options.stdioExtra`
 -- | - `detached` - see Node docs
 -- | - `uid` - see Node docs
 -- | - `gid` - see Node docs
@@ -578,6 +606,9 @@ type ExecaSyncOptions =
   , env :: Maybe (Object String)
   , argv0 :: Maybe String
   , input :: Maybe Buffer
+  , stdin :: Maybe StdIO
+  , stdout :: Maybe StdIO
+  , stderr :: Maybe StdIO
   , stdioExtra :: Maybe (Array StdIO)
   , detached :: Maybe Boolean
   , uid :: Maybe Uid
@@ -602,6 +633,9 @@ defaultExecaSyncOptions =
   , env: Nothing
   , argv0: Nothing
   , input: Nothing
+  , stdin: Nothing
+  , stdout: Nothing
+  , stderr: Nothing
   , stdioExtra: Nothing
   , detached: Nothing
   , uid: Nothing
@@ -636,15 +670,20 @@ defaultExecaSyncOptions =
 execaSync :: String -> Array String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect ExecaResult
 execaSync file args buildOptions = do
   let options = buildOptions defaultExecaSyncOptions
-  parsed <- handleArguments file args $ Record.delete (Proxy :: _ "input") options
+  parsed <- handleArguments file args
+    $ Record.insert (Proxy :: _ "ipc") Nothing
+    $ Record.delete (Proxy :: _ "input") options
   let
     command = joinCommand file args
     escapedCommand = getEscapedCommand file args
-  result <- CP.spawnSync' parsed.file parsed.args
+  result <- spawnSync' parsed.file parsed.args
     ( _
         { cwd = Just parsed.options.cwd
         , input = options.input
         , argv0 = parsed.options.argv0
+        , stdin = options.stdin
+        , stdout = options.stdout
+        , stderr = options.stderr
         , appendStdio = Just parsed.options.stdioExtra
         , env = Just parsed.options.env
         , uid = parsed.options.uid
@@ -716,12 +755,12 @@ doubleQuotesregex = unsafeRegex "\"" global
 execaKill
   :: Maybe KillSignal
   -> Maybe Milliseconds
-  -> ChildProcess
+  -> UnsafeChildProcess
   -> Effect Boolean
 execaKill mbKillSignal forceKillAfterTimeout cp = do
   let
     killSignal = fromMaybe (stringSignal "SIGTERM") mbKillSignal
-  killSignalSucceeded <- CP.kill' killSignal cp
+  killSignalSucceeded <- SafeCP.kill' killSignal cp
   let
     mbTimeout = do
       guard $ isSigTerm killSignal
@@ -729,7 +768,7 @@ execaKill mbKillSignal forceKillAfterTimeout cp = do
       forceKillAfterTimeout
   for_ mbTimeout \(Milliseconds timeout) -> do
     t <- runEffectFn2 setTimeoutImpl (floor timeout) do
-      void $ CP.kill' (stringSignal "SIGKILL") cp
+      void $ SafeCP.kill' (stringSignal "SIGKILL") cp
     t.unref
   pure killSignalSucceeded
   where
@@ -762,6 +801,10 @@ foreign import setTimeoutImpl :: EffectFn2 Int (Effect Unit) { unref :: Effect U
 type ExecaRunOptions =
   -- execa options
   { cleanup :: Boolean
+  , stdin :: Maybe StdIO
+  , stdout :: Maybe StdIO
+  , stderr :: Maybe StdIO
+  , ipc :: Maybe StdIO
   , stdioExtra :: Array StdIO
   , stripFinalNewline :: Boolean
   , encoding :: Encoding
@@ -928,3 +971,180 @@ execaCommandSync s buildOptions = do
       execaSync file args buildOptions
     Nothing ->
       liftEffect $ throw $ "Command " <> show s <> " could not be parsed into `{ file :: String, args :: Array String }` value."
+
+-- | - `cwd` <string> | <URL> Current working directory of the child process.
+-- | - `env` <Object> Environment key-value pairs. Default: process.env.
+-- | - `argv0` <string> Explicitly set the value of argv[0] sent to the child process. This will be set to command if not specified.
+-- | - `detached` <boolean> Prepare child to run independently of its parent process. Specific behavior depends on the platform, see options.detached).
+-- | - `uid` <number> Sets the user identity of the process (see setuid(2)).
+-- | - `gid` <number> Sets the group identity of the process (see setgid(2)).
+-- | - `serialization` <string> Specify the kind of serialization used for sending messages between processes. Possible values are 'json' and 'advanced'. See Advanced serialization for more details. Default: 'json'.
+-- | - `shell` <boolean> | <string> If true, runs command inside of a shell. Uses '/bin/sh' on Unix, and process.env.ComSpec on Windows. A different shell can be specified as a string. See Shell requirements and Default Windows shell. Default: false (no shell).
+-- | - `windowsVerbatimArguments` <boolean> No quoting or escaping of arguments is done on Windows. Ignored on Unix. This is set to true automatically when shell is specified and is CMD. Default: false.
+-- | - `windowsHide` <boolean> Hide the subprocess console window that would normally be created on Windows systems. Default: false.
+-- | - `signal` <AbortSignal> allows aborting the child process using an AbortSignal.
+-- | - `timeout` <number> In milliseconds the maximum amount of time the process is allowed to run. Default: undefined.
+-- | - `killSignal` <string> | <integer> The signal value to be used when the spawned process will be killed by timeout or abort signal. Default: 'SIGTERM'.
+type UnsafeChildProcessSpawnOptions =
+  { cwd :: Maybe String
+  , env :: Maybe (Object String)
+  , argv0 :: Maybe String
+  , stdin :: Maybe StdIO
+  , stdout :: Maybe StdIO
+  , stderr :: Maybe StdIO
+  , ipc :: Maybe StdIO
+  , appendStdio :: Maybe (Array StdIO)
+  , detached :: Maybe Boolean
+  , uid :: Maybe Uid
+  , gid :: Maybe Gid
+  , serialization :: Maybe String
+  , shell :: Maybe Shell
+  , windowsVerbatimArguments :: Maybe Boolean
+  , windowsHide :: Maybe Boolean
+  , timeout :: Maybe Milliseconds
+  , killSignal :: Maybe KillSignal
+  }
+
+spawn'
+  :: String
+  -> Array String
+  -> (UnsafeChildProcessSpawnOptions -> UnsafeChildProcessSpawnOptions)
+  -> Effect UnsafeChildProcess
+spawn' cmd args buildOpts = UnsafeCP.spawn' cmd args opts
+  where
+  opts =
+    { stdio:
+        [ fromMaybe defaultStdIO o.stdin
+        , fromMaybe defaultStdIO o.stdout
+        , fromMaybe defaultStdIO o.stderr
+        , fromMaybe defaultStdIO o.ipc
+        ] <> fromMaybe [] o.appendStdio
+    , cwd: fromMaybe undefined o.cwd
+    , env: fromMaybe undefined o.env
+    , argv0: fromMaybe undefined o.argv0
+    , detached: fromMaybe undefined o.detached
+    , uid: fromMaybe undefined o.uid
+    , gid: fromMaybe undefined o.gid
+    , serialization: fromMaybe undefined o.serialization
+    , shell: fromMaybe undefined o.shell
+    , windowsVerbatimArguments: fromMaybe undefined o.windowsVerbatimArguments
+    , windowsHide: fromMaybe undefined o.windowsHide
+    , timeout: fromMaybe undefined o.timeout
+    , killSignal: fromMaybe undefined o.killSignal
+    }
+  o = buildOpts
+    { cwd: Nothing
+    , env: Nothing
+    , argv0: Nothing
+    , stdin: Nothing
+    , stdout: Nothing
+    , stderr: Nothing
+    , ipc: Nothing
+    , appendStdio: Nothing
+    , detached: Nothing
+    , uid: Nothing
+    , gid: Nothing
+    , serialization: Nothing
+    , shell: Nothing
+    , windowsVerbatimArguments: Nothing
+    , windowsHide: Nothing
+    , timeout: Nothing
+    , killSignal: Nothing
+    }
+
+foreign import undefined :: forall a. a
+
+-- | - `cwd` <string> | <URL> Current working directory of the child process.
+-- | - `input` <string> | <Buffer> | <TypedArray> | <DataView> The value which will be passed as stdin to the spawned process. Supplying this value will override stdio[0].
+-- | - `argv0` <string> Explicitly set the value of argv[0] sent to the child process. This will be set to command if not specified.
+-- | - `env` <Object> Environment key-value pairs. Default: process.env.
+-- | - `uid` <number> Sets the user identity of the process (see setuid(2)).
+-- | - `gid` <number> Sets the group identity of the process (see setgid(2)).
+-- | - `timeout` <number> In milliseconds the maximum amount of time the process is allowed to run. Default: undefined.
+-- | - `killSignal` <string> | <integer> The signal value to be used when the spawned process will be killed. Default: 'SIGTERM'.
+-- | - `maxBuffer` <number> Largest amount of data in bytes allowed on stdout or stderr. If exceeded, the child process is terminated and any output is truncated. See caveat at maxBuffer and Unicode. Default: 1024 * 1024.
+-- | - `shell` <boolean> | <string> If true, runs command inside of a shell. Uses '/bin/sh' on Unix, and process.env.ComSpec on Windows. A different shell can be specified as a string. See Shell requirements and Default Windows shell. Default: false (no shell).
+-- | - `windowsVerbatimArguments` <boolean> No quoting or escaping of arguments is done on Windows. Ignored on Unix. This is set to true automatically when shell is specified and is CMD. Default: false.
+-- | - `windowsHide` <boolean> Hide the subprocess console window that would normally be created on Windows systems. Default: false.
+type UnsafeChildProcessSpawnSyncOptions =
+  { cwd :: Maybe String
+  , input :: Maybe Buffer
+  , stdin :: Maybe StdIO
+  , stdout :: Maybe StdIO
+  , stderr :: Maybe StdIO
+  , appendStdio :: Maybe (Array StdIO)
+  , argv0 :: Maybe String
+  , env :: Maybe (Object String)
+  , uid :: Maybe Uid
+  , gid :: Maybe Gid
+  , timeout :: Maybe Milliseconds
+  , killSignal :: Maybe KillSignal
+  , maxBuffer :: Maybe Number
+  , shell :: Maybe Shell
+  , windowsVerbatimArguments :: Maybe Boolean
+  , windowsHide :: Maybe Boolean
+  }
+
+spawnSync'
+  :: String
+  -> Array String
+  -> (UnsafeChildProcessSpawnSyncOptions -> UnsafeChildProcessSpawnSyncOptions)
+  -> Effect
+       { pid :: Pid
+       , output :: Array Foreign
+       , stdout :: Buffer
+       , stderr :: Buffer
+       , exitStatus :: Exit
+       , error :: Maybe SystemError
+       }
+spawnSync' command args buildOpts = (UnsafeCP.spawnSync' command args opts) <#> \r ->
+  { pid: r.pid
+  , output: r.output
+  , stdout: UnsafeCP.unsafeSOBToBuffer r.stdout
+  , stderr: UnsafeCP.unsafeSOBToBuffer r.stderr
+  , exitStatus: case toMaybe r.status, toMaybe r.signal of
+      Just c, _ -> Normally c
+      _, Just s -> BySignal s
+      _, _ -> unsafeCrashWith $ "Impossible: `spawnSync` child process neither exited nor was killed."
+  , error: toMaybe r.error
+  }
+  where
+  opts =
+    { stdio:
+        [ fromMaybe defaultStdIO o.stdin
+        , fromMaybe defaultStdIO o.stdout
+        , fromMaybe defaultStdIO o.stderr
+        ] <> fromMaybe [] o.appendStdio
+    , encoding: "buffer"
+    , cwd: fromMaybe undefined o.cwd
+    , input: fromMaybe undefined o.input
+    , argv0: fromMaybe undefined o.argv0
+    , env: fromMaybe undefined o.env
+    , uid: fromMaybe undefined o.uid
+    , gid: fromMaybe undefined o.gid
+    , timeout: fromMaybe undefined o.timeout
+    , killSignal: fromMaybe undefined o.killSignal
+    , maxBuffer: fromMaybe undefined o.maxBuffer
+    , shell: fromMaybe undefined o.shell
+    , windowsVerbatimArguments: fromMaybe undefined o.windowsVerbatimArguments
+    , windowsHide: fromMaybe undefined o.windowsHide
+    }
+
+  o = buildOpts
+    { cwd: Nothing
+    , input: Nothing
+    , stdin: Nothing
+    , stdout: Nothing
+    , stderr: Nothing
+    , appendStdio: Nothing
+    , argv0: Nothing
+    , env: Nothing
+    , uid: Nothing
+    , gid: Nothing
+    , timeout: Nothing
+    , killSignal: Nothing
+    , maxBuffer: Nothing
+    , shell: Nothing
+    , windowsVerbatimArguments: Nothing
+    , windowsHide: Nothing
+    }

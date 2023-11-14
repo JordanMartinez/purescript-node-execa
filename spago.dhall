@@ -7,6 +7,7 @@
   , "either"
   , "exceptions"
   , "foldable-traversable"
+  , "foreign"
   , "foreign-object"
   , "functions"
   , "integers"
