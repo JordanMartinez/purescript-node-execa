@@ -51,7 +51,7 @@ spec = describe "execa" do
   describe "using sleep files" do
     let
       shellCmd = if isWindows then "pwsh" else "sh"
-      sleepFile = Path.concat [ "test", "fixtures", "sleep." <> if isWindows then "cmd" else "sh" ]
+      sleepFile = Path.concat [ "test", "fixtures", "sleep." <> if isWindows then "ps1" else "sh" ]
     describe "kill works" do
       it "basic cancel produces error" do
         spawned <- execa shellCmd [ sleepFile, "1" ] identity
