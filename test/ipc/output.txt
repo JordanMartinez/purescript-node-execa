@@ -1,0 +1,26 @@
+
+
+Spawn - IPC usage: Success
+Parent receives message: Success
+Parent -> Child: Success
+Script started
+Child -> Parent Message: Success
+Parent received message: Hello from child
+Child got parent message: Hello from Parent
+Child disconnect from parent: Success
+Script finished
+
+
+SpawnSync - IPC usage: Failure - Error [ERR_IPC_SYNC_FORK]: IPC cannot be used with synchronous forks
+
+
+Fork - IPC usage: Success
+Parent receives message: Success
+Parent -> Child: Success
+Script started
+Child -> Parent Message: Success
+Parent received message: Hello from child
+Child got parent message: Hello from Parent
+Child disconnect from parent: Success
+Script finished
+Finished
