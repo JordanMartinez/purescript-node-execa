@@ -45,7 +45,7 @@ import Foreign.Object as Object
 import Node.Buffer (Buffer)
 import Node.Buffer as Buffer
 import Node.ChildProcess.Aff (waitSpawned')
-import Node.ChildProcess.Types (Exit(..), KillSignal, Shell, StdIO, UnsafeChildProcess, customShell, defaultStdIO, fromKillSignal, fromKillSignal', stringSignal)
+import Node.ChildProcess.Types (Exit(..), KillSignal, Shell, StdIO, UnsafeChildProcess, customShell, defaultStdIO, fromKillSignal, fromKillSignal', ipc, stringSignal)
 import Node.Encoding (Encoding(..))
 import Node.Errors.SystemError (SystemError)
 import Node.Errors.SystemError as SystemError
@@ -102,7 +102,7 @@ getEnv r = do
 -- | - `stdin` - `stdio[0]`. Defaults to `null`.
 -- | - `stdout` - `stdio[1]`. Defaults to `null`.
 -- | - `stderr` - `stdio[2]`. Defaults to `null`.
--- | - `ipc` - `stdio[3]`. Defaults to `null`.
+-- | - `ipc` - `stdio[3]`. When true, uses `ipc`. Otherwise, uses `null`.
 -- | - `stdioExtra` - Append any other `stdio` values to the array.
 -- |      The `stdio` array used is always `[stdin, stdout, stderr, ipc] <> fromMaybe [] options.stdioExtra`
 -- | - `detached` - see Node docs
@@ -130,7 +130,7 @@ type ExecaOptions =
   , stdin :: Maybe StdIO
   , stdout :: Maybe StdIO
   , stderr :: Maybe StdIO
-  , ipc :: Maybe StdIO
+  , ipc :: Maybe Boolean
   , stdioExtra :: Maybe (Array StdIO)
   , detached :: Maybe Boolean
   , uid :: Maybe Uid
@@ -804,7 +804,7 @@ type ExecaRunOptions =
   , stdin :: Maybe StdIO
   , stdout :: Maybe StdIO
   , stderr :: Maybe StdIO
-  , ipc :: Maybe StdIO
+  , ipc :: Maybe Boolean
   , stdioExtra :: Array StdIO
   , stripFinalNewline :: Boolean
   , encoding :: Encoding
@@ -992,7 +992,7 @@ type UnsafeChildProcessSpawnOptions =
   , stdin :: Maybe StdIO
   , stdout :: Maybe StdIO
   , stderr :: Maybe StdIO
-  , ipc :: Maybe StdIO
+  , ipc :: Maybe Boolean
   , appendStdio :: Maybe (Array StdIO)
   , detached :: Maybe Boolean
   , uid :: Maybe Uid
@@ -1017,7 +1017,7 @@ spawn' cmd args buildOpts = UnsafeCP.spawn' cmd args opts
         [ fromMaybe defaultStdIO o.stdin
         , fromMaybe defaultStdIO o.stdout
         , fromMaybe defaultStdIO o.stderr
-        , fromMaybe defaultStdIO o.ipc
+        , if (fromMaybe false o.ipc) then ipc else defaultStdIO
         ] <> fromMaybe [] o.appendStdio
     , cwd: fromMaybe undefined o.cwd
     , env: fromMaybe undefined o.env
