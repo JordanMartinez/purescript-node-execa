@@ -4,7 +4,7 @@ import Prelude
 
 import Effect (Effect)
 import Effect.Aff (launchAff_)
-import Test.Node.Library.CrossSpawn as CrossSpawn
+import Test.Node.Library.Execa.CrossSpawn as CrossSpawn
 import Test.Node.Library.Execa as Execa
 import Test.Node.Library.ParseCommand as ParseCommand
 import Test.Node.Library.ShebangCommand as ShebangCommand
