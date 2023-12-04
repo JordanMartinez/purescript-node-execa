@@ -116,6 +116,8 @@ getEnv r = do
 -- | - `windowsHide` - see Node docs
 -- | - `windowsEnableCmdEcho` (default: `true`) - Enables the `\q` flag when using the `cmd` shell. See https://github.com/nodejs/node/issues/27120
 -- |      This goes against the Windows' defaults but makes the `stdout`/`stderr` behavior more consistent across different operating systems.
+-- | - `windowsAllowCmdShim` (default: `true`) - By default, `node-execa` wraps commands in `cmd.exe` calls. If this is undesired, disabling this flag
+-- |      will stop using that behavior.
 type ExecaOptions =
   -- execa options
   { cleanup :: Maybe Boolean
@@ -142,6 +144,7 @@ type ExecaOptions =
   , windowsHide :: Maybe Boolean
   -- cross spawn options
   , windowsEnableCmdEcho :: Maybe Boolean
+  , windowsAllowCmdShim :: Maybe Boolean
   }
 
 defaultExecaOptions :: ExecaOptions
@@ -168,6 +171,7 @@ defaultExecaOptions =
   , windowsVerbatimArguments: Nothing
   , windowsHide: Nothing
   , windowsEnableCmdEcho: Nothing
+  , windowsAllowCmdShim: Nothing
   }
 
 defaultOptions
@@ -184,6 +188,7 @@ defaultOptions
      , windowsEnableCmdEcho :: Boolean
      , windowsHide :: Boolean
      , windowsVerbatimArguments :: Boolean
+     , windowsAllowCmdShim :: Boolean
      }
 defaultOptions =
   { cleanup: true
@@ -195,6 +200,7 @@ defaultOptions =
   , windowsVerbatimArguments: false
   , windowsHide: true
   , windowsEnableCmdEcho: false
+  , windowsAllowCmdShim: true
   }
 
 handleArguments
@@ -214,6 +220,7 @@ handleArguments file args initOptions = do
     , cwd: initOptions.cwd
     , windowsVerbatimArguments: Nothing
     , windowsEnableCmdEcho: fromMaybe defaultOptions.windowsEnableCmdEcho initOptions.windowsEnableCmdEcho
+    , windowsAllowCmdShim: fromMaybe defaultOptions.windowsAllowCmdShim initOptions.windowsAllowCmdShim
     }
   processCwd <- Process.cwd
   env <- getEnv
@@ -621,6 +628,7 @@ type ExecaSyncOptions =
   , windowsHide :: Maybe Boolean
   -- cross spawn options
   , windowsEnableCmdEcho :: Maybe Boolean
+  , windowsAllowCmdShim :: Maybe Boolean
   }
 
 defaultExecaSyncOptions :: ExecaSyncOptions
@@ -647,6 +655,7 @@ defaultExecaSyncOptions =
   , windowsVerbatimArguments: Nothing
   , windowsHide: Nothing
   , windowsEnableCmdEcho: Nothing
+  , windowsAllowCmdShim: Nothing
   }
 
 -- | Replacement for `childProcess.spawnSync`. Override the default options
