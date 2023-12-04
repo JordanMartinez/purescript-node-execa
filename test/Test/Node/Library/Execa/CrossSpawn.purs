@@ -24,7 +24,7 @@ spec = do
             , cwd: Nothing
             , windowsEnableCmdEcho: false
             , windowsVerbatimArguments: Nothing
-            , windowsPreventCmdShim: true
+            , windowsAllowCmdShim: false
             }
           when (result.command == pursCmd) do
             fail $ append "\n" $ Array.intercalate "\n"
