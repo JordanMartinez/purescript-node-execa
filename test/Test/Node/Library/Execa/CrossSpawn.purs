@@ -5,7 +5,6 @@ import Prelude
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Effect.Class (liftEffect)
-import Effect.Console (log)
 import Node.Library.Execa.CrossSpawn (parse)
 import Test.Node.Library.Utils (isWindows)
 import Test.Spec (Spec, describe, it)
