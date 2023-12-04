@@ -59,6 +59,7 @@ type CrossSpawnOptions =
   , cwd :: Maybe String
   , windowsEnableCmdEcho :: Boolean
   , windowsVerbatimArguments :: Maybe Boolean
+  , windowsAllowCmdShim :: Boolean
   }
 
 type CrossSpawnConfig =
@@ -91,7 +92,7 @@ parse command args options = do
     let needsShell = not <<< test isExecutableRegex
     case mbCommandFile of
       -- If a shell is required, use cmd.exe and take care of escaping everything correctly
-      Just commandFile | needsShell commandFile -> do
+      Just commandFile | needsShell commandFile && parseRec.options.windowsAllowCmdShim -> do
         -- Need to double escape meta chars if the command is a cmd-shim located in `node_modules/.bin/`
         -- The cmd-shim simply calls execute the package bin file with NodeJS, proxying any argument
         -- Because the escape of metachars with ^ gets interpreted when the cmd.exe is first called,

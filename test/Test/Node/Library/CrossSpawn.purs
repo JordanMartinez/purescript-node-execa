@@ -1,4 +1,4 @@
-module Test.Node.Library.CrossSpawn where
+module Test.Node.Library.Execa.CrossSpawn where
 
 import Prelude
 
@@ -17,20 +17,26 @@ spec = do
       when isWindows do
         it "should parse a long `purs graph` command" do
           result <- liftEffect $ parse
-            "purs.cmd"
+            pursCmd
             pursGraphCmd
             { shell: Nothing
             , env: Nothing
             , cwd: Nothing
             , windowsEnableCmdEcho: false
             , windowsVerbatimArguments: Nothing
+            , windowsPreventCmdShim: true
             }
-          fail $ Array.intercalate "\n"
-            $
-              [ "Command: " <> result.command
-              , "Args: "
-              ]
-                <> result.args
+          when (result.command == pursCmd) do
+            fail $ append "\n" $ Array.intercalate "\n"
+              $
+                [ "Expected absolute path to purs.cmd, not relative one"
+                , "Command: " <> result.command
+                , "Args: "
+                ]
+                  <> result.args
+
+pursCmd :: String
+pursCmd = "purs.cmd"
 
 pursGraphCmd :: Array String
 pursGraphCmd =
