@@ -5,6 +5,7 @@ import Prelude
 import Data.Array as Array
 import Data.Maybe (Maybe(..))
 import Effect.Class (liftEffect)
+import Effect.Console (log)
 import Node.Library.Execa.CrossSpawn (parse)
 import Test.Node.Library.Utils (isWindows)
 import Test.Spec (Spec, describe, it)
@@ -24,12 +25,12 @@ spec = do
             , cwd: Nothing
             , windowsEnableCmdEcho: false
             , windowsVerbatimArguments: Nothing
-            , windowsAllowCmdShim: false
+            , windowsAllowCmdShim: true
             }
-          when (result.command == pursCmd) do
+          unless (result.command == pursCmd) do
             fail $ append "\n" $ Array.intercalate "\n"
               $
-                [ "Expected absolute path to purs.cmd, not relative one"
+                [ "Expected command to be unchanged"
                 , "Command: " <> result.command
                 , "Args: "
                 ]
