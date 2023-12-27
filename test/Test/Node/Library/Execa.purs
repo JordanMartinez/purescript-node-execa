@@ -22,6 +22,35 @@ import Test.Spec.Assertions.String (shouldContain)
 
 spec :: Spec Unit
 spec = describe "execa" do
+  describeWindows "CLI parsing" do
+    let
+      cmdFile = Path.concat [ "test", "fixtures", "output-args.cmd" ]
+      itWithArgs args = do
+        it ("[" <> Array.intercalate ", " args <> "]") do
+          result <- _.getResult =<< execa cmdFile args identity
+          case result.exit of
+            Normally 0 -> do
+              let
+                expected = args
+                actual = String.split (Pattern "\r\n") result.stdout
+              when (expected /= args) $ fail $ Array.intercalate "\r\n"
+                [ "Expected: " <> show expected
+                , "Actual  : " <> show actual
+                ]
+            _ -> 
+              fail $ "Failed to get Windows CLI args with args: " <> show args <> "\r\nError: " <> result.message
+    traverse_ itWithArgs 
+      [ []
+      , [ "arg1", "arg2" ]
+      , [ "arg with space" ]
+      , [ "arg with ^" ]
+      , [ "arg with %" ]
+      , [ "arg with <" ]
+      , [ "arg with >" ]
+      , [ "arg with >>" ]
+      , [ "arg with |" ]
+      , [ "arg with *" ]
+      ]
   itNix "`echo test` should fail due to a Node.js bug" do
     spawned <- execa "echo" [] identity
     for_ spawned.stdin \s -> s.writeUtf8End "test"
