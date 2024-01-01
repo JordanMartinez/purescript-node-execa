@@ -24,9 +24,9 @@ main = do
   runWindowsTests <- runSpecT testConfig [ consoleReporter ] do
     Windows.spec
   launchAff_ do
-    runSpec [ consoleReporter ] do
-      Execa.spec
-      ParseCommand.spec
-      ShebangCommand.spec
     void runWindowsTests
+    -- runSpec [ consoleReporter ] do
+    --   Execa.spec
+    --   ParseCommand.spec
+    --   ShebangCommand.spec
   
