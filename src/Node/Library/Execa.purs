@@ -8,8 +8,10 @@ module Node.Library.Execa
   , ExecaProcess
   , ExecaResult
   , execa
+  , execa'
   , ExecaSyncOptions
   , execaSync
+  , execaSync'
   , execaCommand
   , execaCommandSync
   ) where
@@ -50,7 +52,7 @@ import Node.Encoding (Encoding(..))
 import Node.Errors.SystemError (SystemError)
 import Node.Errors.SystemError as SystemError
 import Node.EventEmitter (once_)
-import Node.Library.Execa.CrossSpawn (CrossSpawnConfig)
+import Node.Library.Execa.CrossSpawn (ArgEscape, CrossSpawnConfig, escapeAll)
 import Node.Library.Execa.CrossSpawn as CrossSpawn
 import Node.Library.Execa.GetStream (getStreamBuffer)
 import Node.Library.Execa.NpmRunPath (defaultNpmRunPathOptions, npmRunPathEnv)
@@ -142,6 +144,9 @@ type ExecaOptions =
   , windowsHide :: Maybe Boolean
   -- cross spawn options
   , windowsEnableCmdEcho :: Maybe Boolean
+  , debug :: Maybe
+      { logFinalCommand :: String -> Array String -> Effect Unit
+      }
   }
 
 defaultExecaOptions :: ExecaOptions
@@ -168,6 +173,7 @@ defaultExecaOptions =
   , windowsVerbatimArguments: Nothing
   , windowsHide: Nothing
   , windowsEnableCmdEcho: Nothing
+  , debug: Nothing
   }
 
 defaultOptions
@@ -199,13 +205,13 @@ defaultOptions =
 
 handleArguments
   :: String
-  -> Array String
+  -> Array ArgEscape
   -> ExecaOptions
   -> Effect
        { file :: String
        , args :: Array String
        , options :: ExecaRunOptions
-       , parsed :: CrossSpawnConfig
+       , parsed :: CrossSpawnConfig String
        }
 handleArguments file args initOptions = do
   parsed <- CrossSpawn.parse file args
@@ -323,12 +329,18 @@ type ExecaProcess =
 -- |   _ -> ...
 -- | ```
 execa :: String -> Array String -> (ExecaOptions -> ExecaOptions) -> Aff ExecaProcess
-execa file args buildOptions = do
+execa file args buildOptions = execa' file (escapeAll <$> args) buildOptions
+
+-- | Same as `execa` but allows one to prevent the escaping of certain meta characters when run on Windows
+execa' :: String -> Array ArgEscape -> (ExecaOptions -> ExecaOptions) -> Aff ExecaProcess
+execa' file args buildOptions = do
   let options = buildOptions defaultExecaOptions
   parsed <- liftEffect $ handleArguments file args options
   let
-    command = joinCommand file args
-    escapedCommand = getEscapedCommand file args
+    command = joinCommand file $ _.arg <$> args
+    escapedCommand = getEscapedCommand parsed.file parsed.args
+  for_ options.debug \{ logFinalCommand } -> do
+    liftEffect $ logFinalCommand parsed.file parsed.args
   spawned <- liftEffect $ spawn' parsed.file parsed.args
     ( _
         { cwd = Just parsed.options.cwd
@@ -668,14 +680,19 @@ defaultExecaSyncOptions =
 -- |   _ -> ...
 -- | ```
 execaSync :: String -> Array String -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect ExecaResult
-execaSync file args buildOptions = do
+execaSync file args buildOptions = execaSync' file (escapeAll <$> args) buildOptions
+
+-- | Same as `execaSync` but allows one to prevent the escaping of certain meta characters when run on Windows
+execaSync' :: String -> Array ArgEscape -> (ExecaSyncOptions -> ExecaSyncOptions) -> Effect ExecaResult
+execaSync' file args buildOptions = do
   let options = buildOptions defaultExecaSyncOptions
   parsed <- handleArguments file args
     $ Record.insert (Proxy :: _ "ipc") Nothing
+    $ Record.insert (Proxy :: _ "debug") Nothing
     $ Record.delete (Proxy :: _ "input") options
   let
-    command = joinCommand file args
-    escapedCommand = getEscapedCommand file args
+    command = joinCommand file $ _.arg <$> args
+    escapedCommand = getEscapedCommand parsed.file parsed.args
   result <- spawnSync' parsed.file parsed.args
     ( _
         { cwd = Just parsed.options.cwd

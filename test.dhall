@@ -4,4 +4,7 @@ in config
     with dependencies = config.dependencies #
       [ "spec" 
       , "datetime"
+      , "console"
+      , "node-os"
+      , "transformers"
       ]

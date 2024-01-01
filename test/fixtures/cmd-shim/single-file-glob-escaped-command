@@ -1,0 +1,1 @@
+"C:\Windows\system32\cmd.exe" "/d" "/s" "/c" "\"purs.cmd compile .spago\packages\package-name-1.2.3\src\**\*.purs\""
