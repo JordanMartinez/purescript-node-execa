@@ -1,0 +1,3 @@
+purs compile: No files found using pattern: src\Fo:o.purs
+purs compile: No input files.
+Usage: For basic information, try the `--help' option.

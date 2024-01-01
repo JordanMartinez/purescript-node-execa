@@ -6,6 +6,10 @@ module Node.Library.Execa.CrossSpawn
   ( parse
   , CrossSpawnConfig
   , CrossSpawnOptions
+  , MetaChar(..)
+  , ArgEscape
+  , escapeAll
+  , ignoring
   ) where
 
 import Prelude
@@ -14,11 +18,14 @@ import Control.Alternative (guard)
 import Data.Array as Array
 import Data.Array.NonEmpty as NEA
 import Data.Either (either)
-import Data.Foldable (for_)
+import Data.Foldable (foldl, for_)
 import Data.Function (applyN)
 import Data.Maybe (Maybe(..), fromMaybe, isJust)
-import Data.String (toLower)
-import Data.String.Regex (test)
+import Data.Set (Set)
+import Data.Set as Set
+import Data.String (Pattern(..), Replacement(..), toLower)
+import Data.String as String
+import Data.String.Regex (Regex, test)
 import Data.String.Regex as StringRegex
 import Data.String.Regex.Flags (global, ignoreCase, noFlags)
 import Data.String.Regex.Unsafe (unsafeRegex)
@@ -36,7 +43,7 @@ import Node.Library.Execa.ShebangCommand (shebangCommand)
 import Node.Library.Execa.Utils (bracketEffect, envKey)
 import Node.Library.Execa.Which (defaultWhichOptions)
 import Node.Library.Execa.Which as Which
-import Node.Path (normalize)
+import Node.Path (FilePath, normalize)
 import Node.Path as Path
 import Node.Platform (Platform(..))
 import Node.Process (platform)
@@ -61,166 +68,198 @@ type CrossSpawnOptions =
   , windowsVerbatimArguments :: Maybe Boolean
   }
 
-type CrossSpawnConfig =
+type CrossSpawnConfig a =
   { command :: String
-  , args :: Array String
+  , args :: Array a
   , options :: CrossSpawnOptions
   }
 
-parse :: String -> Array String -> CrossSpawnOptions -> Effect CrossSpawnConfig
+parse :: String -> Array ArgEscape -> CrossSpawnOptions -> Effect (CrossSpawnConfig String)
 parse command args options = do
-  if (not isWindows) then do
-    pure initParseRec
-  else do
-    parseWindows
+  if (not isWindows || isJust options.shell) then do
+    pure 
+      { command
+      , args: map _.arg args
+      , options
+      }
+  else
+    parseNonShell
+      { command
+      , args
+      , options
+      }
+
+parseNonShell :: CrossSpawnConfig ArgEscape -> Effect (CrossSpawnConfig String)
+parseNonShell parseRec = do
+  -- Detect & add support for shebangs
+  Tuple rec1 mbCommandFile <- detectShebang parseRec
+  -- We don't need a shell if the command filename is an executable
+  let needsShell = not <<< test isExecutableRegex
+  case mbCommandFile of
+    -- If a shell is required, use cmd.exe and take care of escaping everything correctly
+    Just commandFile | needsShell commandFile -> do
+      -- Need to double escape meta chars if the command is a cmd-shim located in `node_modules/.bin/`
+      -- The cmd-shim simply calls execute the package bin file with NodeJS, proxying any argument
+      -- Because the escape of metachars with ^ gets interpreted when the cmd.exe is first called,
+      -- we need to double escape them
+      let needsDoubleEscapeChars = test isCommandShimRegex commandFile
+      comSpec <- fromMaybe "cmd.exe" <$> envKey "COMSPEC"
+      pure 
+        { args:
+            -- PureScript note: This fix is done in `execa` since
+            -- both `cross-spawn` and `Node` don't enable it by default.
+            -- But I'm doing it here and exposing an option to re-enable it.
+            -- See 
+            -- - https://github.com/sindresorhus/execa/issues/116
+            -- - https://github.com/moxystudio/node-cross-spawn/issues/135
+            -- - https://github.com/nodejs/node/issues/27120
+            (guard (toLower comSpec == "cmd.exe" && not parseRec.options.windowsEnableCmdEcho) $> "/q")
+              <>
+                [ "/d" -- ignore Autorun
+                , "/s" -- strip wrapping `"` from command line
+                , "/c" -- invoke and exit
+                , wrapInDoubleQuotes
+                    $ Array.intercalate " "
+                    $ Array.cons (escapeCommand $ normalize rec1.command)
+                    $ rec1.args <#> escapeArgument needsDoubleEscapeChars
+                ]
+        , command: comSpec
+        -- Tell node's spawn that the arguments are already escaped
+        , options: rec1.options { windowsVerbatimArguments = Just true }
+        }
+    _ ->
+      pure $ rec1 { args = _.arg <$> rec1.args }
+
+detectShebang :: CrossSpawnConfig ArgEscape -> Effect (Tuple (CrossSpawnConfig ArgEscape) (Maybe String))
+detectShebang parseRec = do
+  mbFile <- resolveCommand parseRec
+  case mbFile of
+    Nothing -> pure $ Tuple parseRec mbFile
+    Just file -> do
+      mbShebang <- readShebang file
+      case mbShebang of
+        Nothing -> pure $ Tuple parseRec mbFile
+        Just shebang -> do
+          let
+            rec1 = parseRec
+              { args = Array.cons (escapeAll file) parseRec.args
+              , command = shebang
+              }
+          newCommand <- resolveCommand rec1
+          pure $ Tuple rec1 newCommand
+
+resolveCommand :: CrossSpawnConfig ArgEscape -> Effect (Maybe String)
+resolveCommand parseRec = do
+  env <- case parseRec.options.env of
+    Nothing -> Process.getEnv
+    Just a -> pure a
+  resolved <- withOptionsCwdIfNeeded parseRec.options.cwd \_ -> do
+    map join $ for (Object.lookup "Path" env) \envPath -> do
+      let getFirst = either (const Nothing) (Just <<< NEA.head)
+      attempt1 <- map getFirst $ Which.whichSync parseRec.command $ defaultWhichOptions { path = Just envPath, pathExt = Just Path.delimiter }
+      if isJust attempt1 then do
+        pure attempt1
+      else do
+        map getFirst $ Which.whichSync parseRec.command $ defaultWhichOptions { path = Just envPath }
+  case parseRec.options.cwd, resolved of
+    Just cwd', Just resolved' ->
+      Just <$> Path.resolve [ cwd' ] resolved'
+    Nothing, Just resolved' ->
+      Just <$> Path.resolve [ ] resolved'
+    _, _ ->
+      pure Nothing
   where
-  initParseRec =
-    { command
-    , args
-    , options
-    }
-  parseWindows
-    | isJust options.shell = pure initParseRec
-    | otherwise = parseNonShell initParseRec
-
-  parseNonShell :: CrossSpawnConfig -> Effect CrossSpawnConfig
-  parseNonShell parseRec = do
-    -- Detect & add support for shebangs
-    Tuple rec1 mbCommandFile <- detectShebang parseRec
-    -- We don't need a shell if the command filename is an executable
-    let needsShell = not <<< test isExecutableRegex
-    case mbCommandFile of
-      -- If a shell is required, use cmd.exe and take care of escaping everything correctly
-      Just commandFile | needsShell commandFile -> do
-        -- Need to double escape meta chars if the command is a cmd-shim located in `node_modules/.bin/`
-        -- The cmd-shim simply calls execute the package bin file with NodeJS, proxying any argument
-        -- Because the escape of metachars with ^ gets interpreted when the cmd.exe is first called,
-        -- we need to double escape them
-        let needsDoubleEscapeChars = test isCommandShimRegex commandFile
-        comSpec <- fromMaybe "cmd.exe" <$> envKey "COMSPEC"
-        pure $ rec1
-          { args =
-              -- PureScript note: This fix is done in `execa` since
-              -- both `cross-spawn` and `Node` don't enable it by default.
-              -- But I'm doing it here and exposing an option to re-enable it.
-              -- See 
-              -- - https://github.com/sindresorhus/execa/issues/116
-              -- - https://github.com/moxystudio/node-cross-spawn/issues/135
-              -- - https://github.com/nodejs/node/issues/27120
-              (guard (toLower comSpec == "cmd.exe" && not parseRec.options.windowsEnableCmdEcho) $> "/q")
-                <>
-                  [ "/d" -- ignore Autorun
-                  , "/s" -- strip wrapping `"` from command line
-                  , "/c" -- invoke and exit
-                  , wrapInDoubleQuotes
-                      $ Array.intercalate " "
-                      $ Array.cons (escapeCommand $ normalize rec1.command)
-                      $ rec1.args <#> escapeArgument needsDoubleEscapeChars
-                  ]
-          , command = comSpec
-          -- Tell node's spawn that the arguments are already escaped
-          , options = rec1.options { windowsVerbatimArguments = Just true }
-          }
-      _ ->
-        pure rec1
-
-  detectShebang :: CrossSpawnConfig -> Effect (Tuple CrossSpawnConfig (Maybe String))
-  detectShebang parseRec = do
-    mbFile <- resolveCommand parseRec
-    case mbFile of
-      Nothing -> pure $ Tuple parseRec mbFile
-      Just file -> do
-        mbShebang <- readShebang file
-        case mbShebang of
-          Nothing -> pure $ Tuple parseRec mbFile
-          Just shebang -> do
-            let
-              rec1 = parseRec
-                { args = Array.cons file parseRec.args
-                , command = shebang
-                }
-            newCommand <- resolveCommand rec1
-            pure $ Tuple rec1 newCommand
-
-  resolveCommand :: CrossSpawnConfig -> Effect (Maybe String)
-  resolveCommand parseRec = do
-    env <- case parseRec.options.env of
-      Nothing -> Process.getEnv
-      Just a -> pure a
-    resolved <- withOptionsCwdIfNeeded parseRec.options.cwd \_ -> do
-      map join $ for (Object.lookup "Path" env) \envPath -> do
-        let getFirst = either (const Nothing) (Just <<< NEA.head)
-        attempt1 <- map getFirst $ Which.whichSync command $ defaultWhichOptions { path = Just envPath, pathExt = Just Path.delimiter }
-        if isJust attempt1 then do
-          pure attempt1
-        else do
-          map getFirst $ Which.whichSync command $ defaultWhichOptions { path = Just envPath }
-    case parseRec.options.cwd, resolved of
-      Just cwd', Just resolved' ->
-        Just <$> Path.resolve [ cwd' ] resolved'
-      Nothing, Just resolved' ->
-        Just <$> Path.resolve [ "" ] resolved'
-      _, _ ->
-        pure Nothing
+  -- switch into options' `cwd` if defined since 'which' does not support custom `cwd`
+  withOptionsCwdIfNeeded :: forall b. Maybe String -> ({ cwd :: String, hasChdir :: Boolean } -> Effect b) -> Effect b
+  withOptionsCwdIfNeeded optionsCwd = bracketEffect open close
     where
-    -- switch into options' `cwd` if defined since 'which' does not support custom `cwd`
-    withOptionsCwdIfNeeded :: forall b. Maybe String -> ({ cwd :: String, hasChdir :: Boolean } -> Effect b) -> Effect b
-    withOptionsCwdIfNeeded optionsCwd = bracketEffect open close
-      where
-      open = do
-        cwd <- Process.cwd
-        hasChdir <- processHasChdir
-        for_ (guard hasChdir *> optionsCwd) \optionCwd -> do
-          Process.chdir optionCwd
-        pure { cwd, hasChdir }
+    open = do
+      cwd <- Process.cwd
+      hasChdir <- processHasChdir
+      for_ (guard hasChdir *> optionsCwd) \optionCwd -> do
+        Process.chdir optionCwd
+      pure { cwd, hasChdir }
 
-      close { cwd, hasChdir } = do
-        for_ (guard hasChdir *> optionsCwd) \_ -> do
-          Process.chdir cwd
+    close { cwd, hasChdir } = do
+      for_ (guard hasChdir *> optionsCwd) \_ -> do
+        Process.chdir cwd
 
-  readShebang cmd = do
-    -- read first 150 bytes of file
-    let size = 150
-    buf <- Buffer.create size
-    void $ try $ bracketEffect (FS.fdOpen cmd R Nothing) (FS.fdClose) \fd ->
-      FS.fdRead fd buf 0 size (Just 0)
-    firstLine <- Buffer.toString UTF8 buf
-    pure $ shebangCommand firstLine
+readShebang :: FilePath -> Effect (Maybe String)
+readShebang cmd = do
+  -- read first 150 bytes of file
+  let size = 150
+  buf <- Buffer.create size
+  void $ try $ bracketEffect (FS.fdOpen cmd R Nothing) (FS.fdClose) \fd ->
+    FS.fdRead fd buf 0 size (Just 0)
+  firstLine <- Buffer.toString UTF8 buf
+  pure $ shebangCommand firstLine
 
-  isExecutableRegex = unsafeRegex """\.(?:com|exe)$""" ignoreCase
+isExecutableRegex :: Regex
+isExecutableRegex = unsafeRegex """\.(?:com|exe)$""" ignoreCase
 
-  isCommandShimRegex = unsafeRegex """node_modules[\\/].bin[\\/][^\\/]+\.cmd$""" ignoreCase
+isCommandShimRegex :: Regex
+isCommandShimRegex = unsafeRegex """node_modules[\\/].bin[\\/][^\\/]+\.cmd$""" ignoreCase
 
-  escapeCommand = StringRegex.replace metaCharsRegex "^$1"
+escapeCommand :: String -> String
+escapeCommand = StringRegex.replace (mkMetaCharsRegex Set.empty) "^$1"
 
-  -- See http://www.robvanderwoude.com/escapechars.php
-  metaCharsRegex = unsafeRegex """([()\][%!^"`<>&|;, *?])""" global
+mkMetaCharsRegex :: Set MetaChar -> Regex
+mkMetaCharsRegex ignoredMetaChars = unsafeRegex ("([" <> remainingMetaCharsRegex <> "])") global
+  where
+  remainingMetaCharsRegex = foldl dropChars metaCharsString ignoredMetaChars
+  dropChars metaChars = case _ of
+    MetaAsterisk -> String.replace (Pattern "*") (Replacement "") metaChars
 
-  -- Algorithm below is based on https://qntm.org/cmd
-  -- Note on PureScript implementation:
-  --    A `"\""` is appended rather than defined inline
-  --    to fix syntax highlighting in PureScript
-  escapeArgument doubleEscapeMetaChars =
+-- See http://www.robvanderwoude.com/escapechars.php
+metaCharsString :: String
+metaCharsString = """()\][%!^"`<>&|;, *?"""
+
+-- Algorithm below is based on https://qntm.org/cmd
+-- Note on PureScript implementation:
+--    A `"\""` is appended rather than defined inline
+--    to fix syntax highlighting in PureScript
+escapeArgument :: Boolean -> ArgEscape -> String
+escapeArgument doubleEscapeMetaChars { ignoredMetaChars, arg } = do
+  if test (mkMetaCharsRegex ignoredMetaChars) arg then do
     -- Sequence of backslashes followed by a double quote:
     -- double up all the backslashes and escape the double quote
-
-    (StringRegex.replace backSlashSequenceThenDoubleQuoteRegex ("""$1$1\""" <> "\""))
+    (StringRegex.replace backSlashSequenceThenDoubleQuoteRegex ("""$1$1\""" <> "\"")) arg
       -- Sequence of backslashes followed by the end of the string
       -- (which will become a double quote later):
       -- double up all the backslashes
-      >>> (StringRegex.replace endOfStringRegex "$1$1")
+      # (StringRegex.replace endOfStringRegex "$1$1")
       -- All other backslashes occur literally
       -- Quote the whole thing:
-      >>> wrapInDoubleQuotes
+      # wrapInDoubleQuotes
       -- Escape meta chars (double escape if needed)
-      >>> applyN (StringRegex.replace metaCharsRegex "^$1") escapeCount
-    where
-    escapeCount = if doubleEscapeMetaChars then 2 else 1
-    backSlashSequenceThenDoubleQuoteRegex =
-      unsafeRegex ("""(\\*)""" <> "\"") global
-    endOfStringRegex =
-      unsafeRegex """(\\*)$""" noFlags
+      # applyN (StringRegex.replace (mkMetaCharsRegex ignoredMetaChars) "^$1") escapeCount
+  else
+    arg
+  where
+  escapeCount = if doubleEscapeMetaChars then 2 else 1
+  backSlashSequenceThenDoubleQuoteRegex =
+    unsafeRegex ("""(\\*)""" <> "\"") global
+  endOfStringRegex =
+    unsafeRegex """(\\*)$""" noFlags
 
-  wrapInDoubleQuotes s = "\"" <> s <> "\""
+wrapInDoubleQuotes :: String -> String
+wrapInDoubleQuotes s = "\"" <> s <> "\""
 
 foreign import processHasChdir :: Effect Boolean
+
+type ArgEscape = { ignoredMetaChars :: Set MetaChar, arg :: String }
+
+data MetaChar 
+  = MetaAsterisk
+
+derive instance Eq MetaChar
+derive instance Ord MetaChar
+instance Show MetaChar where
+  show = case _ of
+    MetaAsterisk -> "MetaAsterisk"
+
+escapeAll :: String -> ArgEscape
+escapeAll arg = { ignoredMetaChars: Set.empty, arg }
+
+ignoring :: Array MetaChar -> String -> ArgEscape
+ignoring metaChars arg = { ignoredMetaChars: Set.fromFoldable metaChars, arg }
