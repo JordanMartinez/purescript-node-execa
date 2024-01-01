@@ -10,8 +10,6 @@ import Data.Maybe (Maybe(..), isJust, maybe)
 import Data.String (Pattern(..), Replacement(..))
 import Data.String as String
 import Data.String.CodePoints as SCP
-
-
 import Effect (Effect)
 import Effect.Aff (Aff, Error, try)
 import Effect.Class (liftEffect)
@@ -226,6 +224,10 @@ spec = describeWindows "CLI parsing" do
                 { stdout = Just pipe
                 , stderr = Just pipe
                 , preferLocal = Just { localDir: Nothing, execPath: Nothing }
+                , debug = Just 
+                    { logFinalCommand: \cmd argz ->
+                        log $ "Running command: " <> cmd <> " " <> Array.intercalate " " argz
+                    }
                 })
             spagoGlobPrefix = [ ".spago", "packages", "package-name-1.2.3", "src" ]
               
@@ -237,6 +239,7 @@ spec = describeWindows "CLI parsing" do
                 $ String.replaceAll (Pattern tmpDir) (Replacement "")
                 $ message err
             Right _ -> do
+              FSA.readTextFile UTF8 path >>= (log <<< append "Foo.purs\r\n")
               let ignoringStar = ignoring [ MetaAsterisk ]
               r <- purs' [ escapeAll "compile", ignoringStar $ Path.concat $ spagoGlobPrefix <> [ "**", "*.purs" ] ]
               checkFixture "single-file-glob-escaped-command" r.escapedCommand
