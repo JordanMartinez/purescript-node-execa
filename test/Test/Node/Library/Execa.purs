@@ -31,10 +31,10 @@ spec = describe "execa" do
       Just e -> Exception.message e `shouldContain` "EPIPE"
   describe "`cat` tests" do
     it "input is file" do
-      spawned <- execa "cat" [ "test.dhall" ] identity
+      spawned <- execa "cat" [ "spago.yaml" ] identity
       result <- spawned.getResult
       case result.exit of
-        Normally 0 -> result.stdout `shouldContain` "let config ="
+        Normally 0 -> result.stdout `shouldContain` "name: node-execa"
         _ -> fail result.message
     itNix "input is buffer" do
       spawned <- execa "cat" [ "-" ] identity
@@ -97,9 +97,9 @@ spec = describe "execa" do
   describe "execaSync" do
     describe "`cat` tests" do
       it "input is file" do
-        result <- liftEffect $ execaSync "cat" [ "test.dhall" ] identity
+        result <- liftEffect $ execaSync "cat" [ "spago.yaml" ] identity
         case result.exit of
-          Normally 0 -> result.stdout `shouldContain` "let config ="
+          Normally 0 -> result.stdout `shouldContain` "name: node-execa"
           _ -> fail result.message
       itNix "input is buffer" do
         input <- liftEffect $ Buffer.fromString "test" UTF8
@@ -110,10 +110,10 @@ spec = describe "execa" do
   describe "execaCommand" do
     describe "`cat` tests" do
       it "input is file" do
-        spawned <- execaCommand "cat test.dhall" identity
+        spawned <- execaCommand "cat spago.yaml" identity
         result <- spawned.getResult
         case result.exit of
-          Normally 0 -> result.stdout `shouldContain` "let config ="
+          Normally 0 -> result.stdout `shouldContain` "name: node-execa"
           _ -> fail result.message
       itNix "input is buffer" do
         spawned <- execaCommand "cat -" identity
@@ -125,9 +125,9 @@ spec = describe "execa" do
   describe "execaCommandSync" do
     describe "`cat` tests" do
       it "input is file" do
-        result <- liftEffect $ execaCommandSync "cat test.dhall" identity
+        result <- liftEffect $ execaCommandSync "cat spago.yaml" identity
         case result.exit of
-          Normally 0 -> result.stdout `shouldContain` "let config ="
+          Normally 0 -> result.stdout `shouldContain` "name: node-execa"
           _ -> fail result.message
       itNix "input is buffer" do
         input <- liftEffect $ Buffer.fromString "test" UTF8
