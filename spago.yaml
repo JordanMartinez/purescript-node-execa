@@ -35,7 +35,7 @@ package:
     - numbers: ">=9.0.0 <10.0.0"
     - ordered-collections: ">=3.0.0 <4.0.0"
     - parallel: ">=6.0.0 <8.0.0"
-    - parsing: ">=10.2.0 <10.3.0"
+    - parsing: ">=10.2.0 <12.0.0"
     - partial: ">=4.0.0 <5.0.0"
     - posix-types: ">=6.0.0 <7.0.0"
     - prelude: ">=6.0.1 <7.0.0"
