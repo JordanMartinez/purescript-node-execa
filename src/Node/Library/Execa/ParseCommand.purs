@@ -14,7 +14,7 @@ import Data.String.NonEmpty as NES
 import Data.String.NonEmpty.Internal (NonEmptyString(..))
 import Data.Tuple (Tuple(..))
 import Parsing (ParseError, fail, runParser)
-import Parsing.Combinators.Array (many, many1)
+import Parsing.Combinators.Array (many1, manyTill_)
 import Parsing.String (anyChar, anyTill, eof, string)
 import Parsing.String.Basic (skipSpaces)
 import Safe.Coerce (coerce)
@@ -41,7 +41,7 @@ parseCommand'' command = runParser command parseFileArgs
   parseFileArgs = do
     skipSpaces
     file <- parseArg
-    args <- many parseArg
+    Tuple args _ <- manyTill_ parseArg eof
     pure { file, args }
 
   parseArg = do
